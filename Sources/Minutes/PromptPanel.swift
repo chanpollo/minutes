@@ -48,7 +48,7 @@ final class PromptPanel: NSPanel, NSTextFieldDelegate {
             button.tag = index
             button.bezelStyle = .rounded
             if index == 0 { button.keyEquivalent = "\r" }
-            row.addArrangedSubview(button)
+            row.addView(button, in: .trailing)
         }
 
         var views: [NSView] = [heading, body]
@@ -56,7 +56,7 @@ final class PromptPanel: NSPanel, NSTextFieldDelegate {
             let field = NSTextField(string: fieldValue)
             field.placeholderString = "Meeting title"
             field.delegate = self
-            field.widthAnchor.constraint(equalToConstant: 300).isActive = true
+            field.widthAnchor.constraint(equalToConstant: 308).isActive = true
             self.field = field
             views.append(field)
         }

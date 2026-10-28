@@ -39,7 +39,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         }
     }
 
-    // The model can be changed elsewhere, e.g. on the "Transcript ready" panel.
+    // The model can be changed elsewhere, e.g. in the menu bar's Summary Model menu.
     func windowDidBecomeKey(_ notification: Notification) {
         store.syncModel()
     }
