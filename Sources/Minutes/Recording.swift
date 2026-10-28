@@ -2,45 +2,77 @@ import AVFoundation
 import CoreAudio
 import Foundation
 
-/// One meeting: the Mac's microphone goes to me.wav, everything the Mac plays goes to others.wav.
+/// One meeting: the Mac's microphone goes to me.wav, everything the Mac plays goes to others.wav,
+/// and the meeting window goes to screen.mov. Files are written in staging and moved into the workspace afterwards.
 final class Recording {
+    let id = UUID().uuidString
     let appName: String?
+    let bundleID: String?
+    let title: String
     let autoStop: Bool
     let startedAt = Date()
     let folder: URL
+    private(set) var audioStartedAt: Date?
+    private(set) var screenError: Error?
 
     private let systemAudio = SystemAudioTap()
     private let microphone = MicCapture()
+    private let screen: ScreenRecorder?
+    private var screenTask: Task<Void, Never>?
 
-    static let root = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Documents/Meetings")
-
-    var title: String { appName.map { "\($0) meeting" } ?? "Meeting" }
     var micURL: URL { folder.appendingPathComponent("me.wav") }
     var systemURL: URL { folder.appendingPathComponent("others.wav") }
+    var screenURL: URL { folder.appendingPathComponent("screen.mov") }
 
-    init(appName: String?, autoStop: Bool) throws {
+    init(appName: String?, bundleID: String?, title: String, autoStop: Bool, recordScreen: Bool) throws {
         self.appName = appName
+        self.bundleID = bundleID
+        self.title = Workspace.cleanTitle(title)
         self.autoStop = autoStop
-        let stamp = DateFormatter()
-        stamp.dateFormat = "yyyy-MM-dd HHmm"
-        let name = [stamp.string(from: startedAt), appName].compactMap { $0 }.joined(separator: " ")
-        folder = Self.root.appendingPathComponent(name.replacingOccurrences(of: "/", with: "-"))
+        screen = recordScreen ? ScreenRecorder() : nil
+        folder = Workspace.staging.appendingPathComponent(id)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Workspace.writeMeta(
+            MeetingMeta(id: id, title: self.title, startedAt: startedAt, app: appName, bundleID: bundleID), to: folder)
     }
 
     func start() throws {
         do {
             try microphone.start(writingTo: micURL)
             try systemAudio.start(writingTo: systemURL)
+            audioStartedAt = Date()
         } catch {
-            stop()
+            stopAudio()
             throw error
+        }
+        guard let screen else { return }
+        let bundleID = bundleID, url = screenURL
+        screenTask = Task { [weak self] in
+            do {
+                try await screen.start(bundleID: bundleID, writingTo: url)
+            } catch {
+                self?.screenError = error
+            }
         }
     }
 
-    func stop() {
+    func stopAudio() {
         microphone.stop()
         systemAudio.stop()
+    }
+
+    /// Stops every track and records the end time and video offset; the screen file needs a moment to finish.
+    func stop() async {
+        stopAudio()
+        let endedAt = Date()
+        await screenTask?.value
+        await screen?.stop()
+        var offset: TimeInterval?
+        if let video = screen?.firstFrameAt, let audio = audioStartedAt { offset = video.timeIntervalSince(audio) }
+        _ = try? Workspace.updateMeta(folder) {
+            $0.endedAt = endedAt
+            $0.videoOffset = offset
+        }
     }
 }
 
@@ -95,6 +127,32 @@ final class TrackWriter {
         lock.lock()
         file = nil // AVAudioFile finalises the WAV header on deinit
         lock.unlock()
+    }
+
+    /// A crash leaves the RIFF and data sizes as they were before the first flush; set them from the file size.
+    static func repairHeader(_ url: URL) {
+        guard let handle = try? FileHandle(forUpdating: url) else { return }
+        defer { try? handle.close() }
+        guard let size = try? handle.seekToEnd(), size > 12, size <= UInt64(UInt32.max) else { return }
+        func read(_ offset: UInt64, _ count: Int) -> Data? {
+            try? handle.seek(toOffset: offset)
+            return try? handle.read(upToCount: count)
+        }
+        func write(_ value: UInt32, at offset: UInt64) {
+            try? handle.seek(toOffset: offset)
+            try? handle.write(contentsOf: withUnsafeBytes(of: value.littleEndian) { Data($0) })
+        }
+        guard read(0, 4) == Data("RIFF".utf8), read(8, 4) == Data("WAVE".utf8) else { return }
+        var offset: UInt64 = 12
+        while offset + 8 <= size, let chunk = read(offset, 8), chunk.count == 8 {
+            let length = UInt64(chunk.suffix(4).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }.littleEndian)
+            if chunk.prefix(4) == Data("data".utf8) {
+                write(UInt32((size - offset - 8) & ~1), at: offset + 4)
+                write(UInt32(size - 8), at: 4)
+                return
+            }
+            offset += 8 + length + (length & 1)
+        }
     }
 }
 

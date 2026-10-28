@@ -1,11 +1,19 @@
 import AppKit
 
 /// Small floating card in the top-right corner, shown over full-screen meetings without taking focus.
-final class PromptPanel: NSPanel {
+final class PromptPanel: NSPanel, NSTextFieldDelegate {
     private var actions: [() -> Void] = []
     private var dismissTimer: Timer?
+    private var field: NSTextField?
+    private var fired = false
 
-    init(title: String, message: String, buttons: [(String, () -> Void)], timeout: TimeInterval = 30) {
+    /// Runs when the panel closes itself after `timeout`.
+    var onTimeout: (() -> Void)?
+
+    /// Text of the editable field, when the panel was given `fieldValue`.
+    var fieldText: String { field?.stringValue ?? "" }
+
+    init(title: String, message: String, fieldValue: String? = nil, buttons: [(String, () -> Void)], timeout: TimeInterval = 30) {
         super.init(
             contentRect: NSRect(x: 0, y: 0, width: 340, height: 110),
             styleMask: [.nonactivatingPanel, .titled, .fullSizeContentView],
@@ -29,6 +37,7 @@ final class PromptPanel: NSPanel {
         heading.font = .boldSystemFont(ofSize: 13)
         let body = NSTextField(wrappingLabelWithString: message)
         body.textColor = .secondaryLabelColor
+        body.preferredMaxLayoutWidth = 308
 
         let row = NSStackView()
         row.orientation = .horizontal
@@ -42,7 +51,17 @@ final class PromptPanel: NSPanel {
             row.addArrangedSubview(button)
         }
 
-        let stack = NSStackView(views: [heading, body, row])
+        var views: [NSView] = [heading, body]
+        if let fieldValue {
+            let field = NSTextField(string: fieldValue)
+            field.placeholderString = "Meeting title"
+            field.delegate = self
+            field.widthAnchor.constraint(equalToConstant: 300).isActive = true
+            self.field = field
+            views.append(field)
+        }
+        views.append(row)
+        let stack = NSStackView(views: views)
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 6
@@ -55,10 +74,14 @@ final class PromptPanel: NSPanel {
             stack.topAnchor.constraint(equalTo: background.topAnchor, constant: 14),
             stack.bottomAnchor.constraint(equalTo: background.bottomAnchor, constant: -14),
             row.trailingAnchor.constraint(equalTo: stack.trailingAnchor),
+            stack.widthAnchor.constraint(equalToConstant: 308),
         ])
 
         if timeout > 0 {
-            dismissTimer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { [weak self] _ in self?.close() }
+            dismissTimer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { [weak self] _ in
+                self?.onTimeout?()
+                self?.close()
+            }
         }
     }
 
@@ -78,9 +101,26 @@ final class PromptPanel: NSPanel {
         super.close()
     }
 
+    // Typing a title must not be cut off by the auto-dismiss.
+    func controlTextDidBeginEditing(_ obj: Notification) {
+        dismissTimer?.invalidate()
+    }
+
+    // Return in the title field means the default button; leaving the field does nothing.
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        guard selector == #selector(NSResponder.insertNewline(_:)) else { return false }
+        run(0)
+        return true
+    }
+
     @objc private func pressed(_ sender: NSButton) {
-        let action = actions[sender.tag]
+        run(sender.tag)
+    }
+
+    private func run(_ index: Int) {
+        guard !fired, actions.indices.contains(index) else { return }
+        fired = true
         close()
-        action()
+        actions[index]()
     }
 }
