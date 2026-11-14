@@ -16,11 +16,28 @@
 	<string>1</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.2</string>
-	<key>LSUIElement</key>
-	<true/>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleIconName</key>
+	<string>AppIcon</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Records your side of the meeting.</string>
 	<key>NSAudioCaptureUsageDescription</key>
 	<string>Records the other participants' audio during a meeting.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Names each meeting after the calendar event that is on now.</string>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.enta1234.minutes.sidebar-item</string>
+			<key>UTTypeDescription</key>
+			<string>Minutes meeting or group</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

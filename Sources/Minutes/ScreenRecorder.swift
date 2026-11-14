@@ -2,6 +2,7 @@ import AVFoundation
 import CoreGraphics
 import Foundation
 import ScreenCaptureKit
+import VideoToolbox
 
 struct ScreenRecorderError: LocalizedError {
     let message: String
@@ -9,6 +10,58 @@ struct ScreenRecorderError: LocalizedError {
 
     static let permission = ScreenRecorderError(
         message: "Screen Recording permission is off: System Settings > Privacy & Security > Screen & System Audio Recording")
+}
+
+/// HEVC settings for a Settings.videoQuality preset. Every preset records the window at its own pixel size; they differ
+/// only in the encoder's constant-quality target, so a file grows with motion, not with time.
+struct VideoEncoding: Equatable {
+    /// kVTCompressionPropertyKey_Quality, 0…1.
+    let quality: Double
+    /// For encoders without a quality mode: an average bit rate, in bits per pixel per frame.
+    let bitsPerPixel: Double
+    let framesPerSecond: Int
+
+    // Screen content rarely changes, so most of a file is key frames: 30 s instead of 2 s made a real call 10× smaller.
+    // An exact seek then decodes up to 30 s of frames: 0.44 s at worst on an M4 for full-screen 3K motion.
+    static let keyFrameInterval: TimeInterval = 30
+
+    // Measured on a real 2948×1658 Teams window, a scrolling document and a full-motion clip (MB per hour):
+    // smaller 15 / 42 / 820, balanced 20 / 67 / 3,400, best 27 / 107 / 8,700. The old 1 Mbps at 1920 px was 194 / 457 / 544.
+    static func preset(_ quality: Settings.VideoQuality) -> VideoEncoding {
+        switch quality {
+        // Fewer frames cost nothing on a still window and a third less in full motion.
+        case .smaller: VideoEncoding(quality: 0.35, bitsPerPixel: 0.005, framesPerSecond: 10)
+        case .balanced: VideoEncoding(quality: 0.5, bitsPerPixel: 0.01, framesPerSecond: 15)
+        case .best: VideoEncoding(quality: 0.65, bitsPerPixel: 0.02, framesPerSecond: 15)
+        }
+    }
+
+    static var current: VideoEncoding { preset(Settings.videoQuality) }
+
+    /// Apple silicon's HEVC encoder has a constant-quality mode; Intel Macs get an average bit rate instead.
+    static func supportsQuality(width: Int, height: Int) -> Bool {
+        var properties: CFDictionary?
+        let status = VTCopySupportedPropertyDictionaryForEncoder(
+            width: Int32(width), height: Int32(height), codecType: kCMVideoCodecType_HEVC, encoderSpecification: nil,
+            encoderIDOut: nil, supportedPropertiesOut: &properties)
+        guard status == noErr, let properties = properties as? [String: Any] else { return false }
+        return properties[kVTCompressionPropertyKey_Quality as String] != nil
+    }
+
+    // No data-rate limit on top: with one set, the encoder drops the quality target and every preset came out the same.
+    func compressionProperties(width: Int, height: Int) -> [String: Any] {
+        var properties: [String: Any] = [
+            AVVideoMaxKeyFrameIntervalDurationKey: Self.keyFrameInterval,
+            AVVideoExpectedSourceFrameRateKey: framesPerSecond,
+            AVVideoAllowFrameReorderingKey: false,
+        ]
+        if Self.supportsQuality(width: width, height: height) {
+            properties[AVVideoQualityKey] = quality
+        } else {
+            properties[AVVideoAverageBitRateKey] = Int(Double(width * height * framesPerSecond) * bitsPerPixel)
+        }
+        return properties
+    }
 }
 
 /// Records the meeting app's largest window (or the main display) to an HEVC .mov with ScreenCaptureKit.
@@ -44,8 +97,16 @@ final class ScreenRecorder {
         } catch {
             throw Self.mapped(error)
         }
-        let config = Self.configuration(for: filter)
-        let writer = try VideoFileWriter(url: url, width: config.width, height: config.height)
+        let encoding = VideoEncoding.current
+        var config = Self.configuration(for: filter, encoding: encoding, longest: nil)
+        let writer: VideoFileWriter
+        do {
+            writer = try VideoFileWriter(url: url, width: config.width, height: config.height, encoding: encoding)
+        } catch {
+            // Past what this Mac's encoder takes (a 6K display on an older Mac): the largest size it does take.
+            config = Self.configuration(for: filter, encoding: encoding, longest: 4096)
+            writer = try VideoFileWriter(url: url, width: config.width, height: config.height, encoding: encoding)
+        }
         let sink = StreamSink(writer: writer)
         let stream = SCStream(filter: filter, configuration: config, delegate: sink)
         sink.stream = stream
@@ -89,7 +150,8 @@ final class ScreenRecorder {
                     $0.windowLayer == 0 && $0.isOnScreen && $0.frame.width >= 320 && $0.frame.height >= 200
                         && matches($0.owningApplication?.bundleIdentifier, bundleID)
                 }
-                .max { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }
+                // The newest window: Teams opens each meeting in a window of its own beside the larger main one.
+                .max { ($0.windowID, $0.frame.width * $0.frame.height) < ($1.windowID, $1.frame.width * $1.frame.height) }
             if let window { return SCContentFilter(desktopIndependentWindow: window) }
         }
         guard let display = content.displays.first(where: { $0.displayID == CGMainDisplayID() }) ?? content.displays.first else {
@@ -102,19 +164,20 @@ final class ScreenRecorder {
         return SCContentFilter(display: display, excludingApplications: own, exceptingWindows: [])
     }
 
-    private static func configuration(for filter: SCContentFilter) -> SCStreamConfiguration {
+    /// The window's own pixel size (Retina included), unless `longest` caps it.
+    private static func configuration(for filter: SCContentFilter, encoding: VideoEncoding, longest cap: CGFloat?) -> SCStreamConfiguration {
         let scale = CGFloat(filter.pointPixelScale)
         var width = filter.contentRect.width * scale
         var height = filter.contentRect.height * scale
         let longest = max(width, height)
-        if longest > 1920 {
-            width *= 1920 / longest
-            height *= 1920 / longest
+        if let cap, longest > cap {
+            width *= cap / longest
+            height *= cap / longest
         }
         let config = SCStreamConfiguration()
         config.width = max(2, Int(width) & ~1)
         config.height = max(2, Int(height) & ~1)
-        config.minimumFrameInterval = CMTime(value: 1, timescale: 15)
+        config.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(encoding.framesPerSecond))
         config.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
         config.showsCursor = true
         config.capturesAudio = false
@@ -187,16 +250,21 @@ private final class VideoFileWriter: @unchecked Sendable {
     private var lastSample: CMSampleBuffer?
     private var closed = false
 
-    init(url: URL, width: Int, height: Int) throws {
+    init(url: URL, width: Int, height: Int, encoding: VideoEncoding) throws {
         self.url = url
         try? FileManager.default.removeItem(at: url)
         writer = try AVAssetWriter(outputURL: url, fileType: .mov)
-        input = AVAssetWriterInput(mediaType: .video, outputSettings: [
+        let settings: [String: Any] = [
             AVVideoCodecKey: AVVideoCodecType.hevc,
             AVVideoWidthKey: width,
             AVVideoHeightKey: height,
-            AVVideoCompressionPropertiesKey: [AVVideoAverageBitRateKey: 1_000_000],
-        ])
+            AVVideoCompressionPropertiesKey: encoding.compressionProperties(width: width, height: height),
+        ]
+        // AVAssetWriterInput raises an exception, not an error, for settings it cannot take.
+        guard writer.canApply(outputSettings: settings, forMediaType: .video) else {
+            throw ScreenRecorderError(message: "Cannot write HEVC video at \(width)x\(height)")
+        }
+        input = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
         input.expectsMediaDataInRealTime = true
         // Without fragments the movie header is written only at finishWriting; a crash would lose the whole video.
         writer.movieFragmentInterval = CMTime(seconds: 10, preferredTimescale: 600)

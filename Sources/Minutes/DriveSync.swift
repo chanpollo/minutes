@@ -14,9 +14,17 @@ extension Notification.Name {
     static let driveStatusChanged = Notification.Name("MinutesDriveStatusChanged")
 }
 
-/// Uploads meeting folders to My Drive/Minutes/<folder name> with the drive.file scope, one meeting at a time.
+/// Uploads meeting folders to My Drive/Minutes/<group name>/<folder name> (Minutes/<folder name> outside a group) with
+/// the drive.file scope, one meeting at a time. Runs only while Settings sync to Google Drive signed in from Minutes.
 final class DriveSync {
     static let shared = DriveSync()
+
+    private init() {
+        // Group moves and renames are local edits that only post meetingsChanged.
+        NotificationCenter.default.addObserver(forName: .meetingsChanged, object: nil, queue: .main) { [weak self] _ in
+            self?.scheduleGroupSync()
+        }
+    }
 
     static var clientID: String? {
         get { setting("googleClientID") }
@@ -35,6 +43,8 @@ final class DriveSync {
     private static let filesURL = "https://www.googleapis.com/drive/v3/files"
     private static let uploadURL = "https://www.googleapis.com/upload/drive/v3/files"
     private static let rootFolderKey = "driveRootFolderID"
+    // [group id: [Drive folder id, name it was given]]
+    private static let groupFoldersKey = "driveGroupFolders"
     private static let folderType = "application/vnd.google-apps.folder"
     private static let attempts = 5
 
@@ -52,6 +62,7 @@ final class DriveSync {
     private var failure: String?
     private var running = false
     private var signIn: Loopback?
+    private var groupSync: DispatchWorkItem?
 
     private struct Cancelled: Error {}
     private struct SessionExpired: Error {}
@@ -224,8 +235,10 @@ final class DriveSync {
 
     // MARK: Queue
 
+    private var active: Bool { Settings.syncMode == .googleDrive && isConnected }
+
     func enqueue(meetingID: String) {
-        guard isConnected else { return }
+        guard active else { return }
         lock.lock()
         // Meetings that gave up earlier go again with the next request.
         for id in failed + [meetingID] where !pending.contains(id) { pending.append(id) }
@@ -243,18 +256,31 @@ final class DriveSync {
     }
 
     func enqueuePending() {
-        guard isConnected else { return }
+        guard active else { return }
         DispatchQueue.global(qos: .utility).async {
-            for meeting in Workspace.meetings() where Self.needsUpload(meeting.folder, meeting.meta) {
+            // A meeting being transcribed goes up when it is done; its tracks may still turn into FLAC.
+            for meeting in Workspace.meetings()
+            where !Housekeeping.isHeld(meeting.meta.id) && Self.needsUpload(meeting.folder, meeting.meta) {
                 self.enqueue(meetingID: meeting.meta.id)
             }
         }
     }
 
+    /// Another sync was chosen: queued meetings are dropped, the one uploading finishes.
+    func stop() {
+        lock.lock()
+        pending.removeAll()
+        failed.removeAll()
+        failure = nil
+        lock.unlock()
+        setStatus(nil)
+    }
+
     private func next() -> String? {
         lock.lock()
         defer { lock.unlock() }
-        guard !pending.isEmpty else {
+        guard !pending.isEmpty, Settings.syncMode == .googleDrive else {
+            pending.removeAll()
             running = false
             return nil
         }
@@ -306,24 +332,33 @@ final class DriveSync {
     }
 
     static func needsUpload(_ folder: URL, _ meta: MeetingMeta) -> Bool {
-        let renamed = meta.drive?.folderID != nil && meta.drive?.folderName != folder.lastPathComponent
-        return renamed || !filesToUpload(in: folder, drive: meta.drive).isEmpty
+        // A confidential meeting stays on this Mac; a copy made before it was marked has to go.
+        if meta.confidential == true { return meta.drive?.folderID != nil }
+        let placed = meta.drive?.folderID != nil
+        let renamed = placed && meta.drive?.folderName != folder.lastPathComponent
+        let moved = placed && meta.drive?.groupID != liveGroup(meta.groupID)
+        return renamed || moved || !filesToUpload(in: folder, meta: meta).isEmpty
+    }
+
+    /// The files Settings send, as for a synced folder; pictures go to frames and attachments sub-folders.
+    static func uploadNames(in folder: URL, meta: MeetingMeta) -> [String] {
+        Sync.fileNames(in: folder, meta: meta)
     }
 
     /// Files that are new or differ in size or modification time from what meta.drive records.
-    static func filesToUpload(in folder: URL, drive: DriveState?) -> [LocalFile] {
-        let hasVideo = FileManager.default.fileExists(atPath: folder.appendingPathComponent("meeting.mp4").path)
-        let names = ["transcript.md", "summary.md", "notes.md"] + (hasVideo ? ["meeting.mp4"] : ["me.wav", "others.wav"])
-        return names.compactMap { name in
+    static func filesToUpload(in folder: URL, meta: MeetingMeta) -> [LocalFile] {
+        uploadNames(in: folder, meta: meta).compactMap { name in
             let url = folder.appendingPathComponent(name)
-            guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey]),
-                  values.isRegularFile == true, let size = values.fileSize, let date = values.contentModificationDate
-            else { return nil }
             // meta.json stores whole seconds, so compare at that precision or every file looks changed.
-            let modified = wholeSeconds(date)
-            if let record = drive?.files[name], record.size == size, wholeSeconds(record.modified) == modified { return nil }
+            guard let (size, modified) = Sync.fileStamp(url) else { return nil }
+            if let record = meta.drive?.files[name], record.size == size, wholeSeconds(record.modified) == modified { return nil }
             return LocalFile(name: name, url: url, size: size, modified: modified)
         }
+    }
+
+    /// The group id when that group still exists and Settings keep a folder per group.
+    private static func liveGroup(_ id: String?) -> String? {
+        Sync.liveGroup(id)?.id
     }
 
     private static func wholeSeconds(_ date: Date) -> Date {
@@ -331,7 +366,7 @@ final class DriveSync {
     }
 
     private func upload(meetingID: String) throws {
-        guard let folder = locate(meetingID), let meta = Workspace.readMeta(folder), Self.needsUpload(folder, meta) else { return }
+        guard Settings.syncMode == .googleDrive, let folder = locate(meetingID), let meta = Workspace.readMeta(folder), Self.needsUpload(folder, meta) else { return }
         // Renamed or deleted while uploading: pick it up again under its new name, or drop it.
         let moved = { self.locate(meetingID).map { $0.standardizedFileURL != folder.standardizedFileURL } }
         do {
@@ -345,15 +380,21 @@ final class DriveSync {
     }
 
     private func upload(_ folder: URL, meta: MeetingMeta) throws {
+        if meta.confidential == true { return try withdraw(meta) }
         setStatus("Uploading \(meta.title) · 0%")
-        let drive = try meetingFolder(folder, meta: meta)
+        var drive = try meetingFolder(folder, meta: meta)
         guard let folderID = drive.folderID else { return }
-        let files = Self.filesToUpload(in: folder, drive: drive)
+        var current = meta
+        current.drive = drive
+        let files = Self.filesToUpload(in: folder, meta: current)
         let total = max(files.reduce(0) { $0 + $1.size }, 1)
         var done = 0
         var shown = 0
         for file in files {
-            let id = try upload(file, replacing: drive.files[file.name]?.id, parent: folderID) { sent in
+            let parent = !file.name.contains("/") ? folderID
+                : NotesAttachments.isAttachment(file.name) ? try attachmentsFolder(&drive, in: folderID, meetingID: meta.id)
+                : try framesFolder(&drive, in: folderID, meetingID: meta.id)
+            let id = try upload(file, replacing: drive.files[file.name]?.id, parent: parent) { sent in
                 let percent = min((done + sent) * 100 / total, 100)
                 guard percent != shown else { return }
                 shown = percent
@@ -366,34 +407,128 @@ final class DriveSync {
                 meta.drive = state
             }
         }
+        // A track compressed to FLAC after its WAV went up: the WAV copy is now a duplicate.
+        let uploaded = Set(files.map(\.name))
+        let stale = AudioTracks.names.filter { uploaded.contains("\($0).flac") }.map { "\($0).wav" }
+            .filter { drive.files[$0] != nil && !FileManager.default.fileExists(atPath: folder.appendingPathComponent($0).path) }
+        if !stale.isEmpty { try trash(stale, of: meta.id) }
     }
 
-    // Writes to wherever the folder is now: a rename during an upload must not lose the Drive id it produced.
-    private func record(_ meetingID: String, _ change: (inout MeetingMeta) -> Void) throws {
-        var misses = 0
-        while true {
-            guard let folder = locate(meetingID) else { throw DriveError(message: "The meeting was removed while uploading") }
+    /// frames/ inside the meeting's Drive folder, made the first time a picture goes up.
+    private func framesFolder(_ drive: inout DriveState, in parent: String, meetingID: String) throws -> String {
+        if let id = drive.framesFolderID, try isLive(id) { return id }
+        let id = try createFolder("frames", parent: parent)
+        drive.framesFolderID = id
+        try record(meetingID) { $0.drive?.framesFolderID = id }
+        return id
+    }
+
+    /// attachments/ beside frames/, so notes.md's links work in the Drive copy too.
+    private func attachmentsFolder(_ drive: inout DriveState, in parent: String, meetingID: String) throws -> String {
+        if let id = drive.attachmentsFolderID, try isLive(id) { return id }
+        let id = try createFolder(NotesAttachments.folderName, parent: parent)
+        drive.attachmentsFolderID = id
+        try record(meetingID) { $0.drive?.attachmentsFolderID = id }
+        return id
+    }
+
+    // MARK: Deleting copies
+
+    /// Marked confidential after it went up: its Drive folder, files and name included, goes to the Drive trash.
+    private func withdraw(_ meta: MeetingMeta) throws {
+        guard let id = meta.drive?.folderID else { return }
+        let (data, response) = try request("PATCH", "\(Self.filesURL)/\(id)?fields=id", json: ["trashed": true])
+        if response.statusCode != 404 { try Self.check(response, data, "remove \(meta.title) from Drive") }
+        try record(meta.id) { $0.drive = nil }
+    }
+
+    /// Marked confidential while another sync, or none, is chosen: the copy on Drive still goes.
+    func withdrawConfidential(meetingID: String) {
+        guard isConnected else { return }
+        worker.async {
+            guard let folder = self.locate(meetingID), let meta = Workspace.readMeta(folder),
+                  meta.confidential == true, meta.drive?.folderID != nil else { return }
             do {
-                try Workspace.updateMeta(folder, change)
-                return
-            } catch where misses < 2 && locate(meetingID)?.standardizedFileURL != folder.standardizedFileURL {
-                misses += 1 // Workspace.rename moves the folder outside the meta lock, so the read or the atomic write can miss it
+                try self.withdraw(meta)
+            } catch is Cancelled {
+            } catch {
+                self.setStatus("Drive clean-up failed: \(error.localizedDescription)")
             }
         }
     }
 
-    // A folder being renamed drops out of Workspace.meetings() for a moment; look again before calling it gone.
-    private func locate(_ meetingID: String) -> URL? {
-        for attempt in 0..<3 {
-            if let folder = Workspace.folder(id: meetingID) { return folder }
-            if attempt < 2 { Thread.sleep(forTimeInterval: 0.1) }
+    /// Moves these files of the meeting to the Drive trash and forgets them; runs after any upload in progress.
+    func deleteCopies(meetingID: String, names: [String]) {
+        guard isConnected, !names.isEmpty else { return }
+        worker.async {
+            do {
+                try self.trash(names, of: meetingID)
+            } catch is Cancelled {
+            } catch {
+                // Kept in meta.drive, so the next clean-up tries again.
+                self.setStatus("Drive clean-up failed: \(error.localizedDescription)")
+            }
         }
-        return nil
     }
 
-    /// The meeting's Drive folder, created under the root folder when missing or trashed, renamed to match the local folder.
+    /// The meeting was deleted here: its Drive folder goes to the Drive trash.
+    func trashMeeting(_ meta: MeetingMeta) {
+        guard isConnected, let id = meta.drive?.folderID else { return }
+        worker.async {
+            do {
+                let (data, response) = try self.request("PATCH", "\(Self.filesURL)/\(id)?fields=id", json: ["trashed": true])
+                if response.statusCode != 404 { try Self.check(response, data, "remove \(meta.title) from Drive") }
+            } catch is Cancelled {
+            } catch {
+                self.setStatus("Drive clean-up failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// A meeting deleted here came back: its Drive folder comes out of the Drive trash. Queued after the trash.
+    func untrashMeeting(_ meta: MeetingMeta) {
+        guard isConnected, let id = meta.drive?.folderID else { return }
+        worker.async {
+            do {
+                let (data, response) = try self.request("PATCH", "\(Self.filesURL)/\(id)?fields=id", json: ["trashed": false])
+                if response.statusCode == 404 {
+                    // Gone for good: the next sync sends the meeting again in full.
+                    try self.record(meta.id) { $0.drive = nil }
+                    Sync.shared.enqueue(meetingID: meta.id)
+                } else {
+                    try Self.check(response, data, "restore \(meta.title) on Drive")
+                }
+            } catch is Cancelled {
+            } catch {
+                self.setStatus("Drive restore failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func trash(_ names: [String], of meetingID: String) throws {
+        guard let folder = locate(meetingID), let meta = Workspace.readMeta(folder) else { return }
+        for name in names {
+            guard let file = meta.drive?.files[name] else { continue }
+            let (data, response) = try request("PATCH", "\(Self.filesURL)/\(file.id)?fields=id", json: ["trashed": true])
+            if response.statusCode != 404 { try Self.check(response, data, "delete \(name) on Drive") }
+            try record(meetingID) { $0.drive?.files[name] = nil }
+        }
+    }
+
+    // A rename during an upload must not lose the Drive id it produced.
+    private func record(_ meetingID: String, _ change: (inout MeetingMeta) -> Void) throws {
+        try Sync.record(meetingID, change)
+    }
+
+    private func locate(_ meetingID: String) -> URL? {
+        Sync.locate(meetingID)
+    }
+
+    /// The meeting's Drive folder, created under its group's folder (or the root folder) when missing or trashed,
+    /// renamed and moved to match the local folder and group.
     private func meetingFolder(_ folder: URL, meta: MeetingMeta) throws -> DriveState {
         let name = folder.lastPathComponent
+        let group = Self.liveGroup(meta.groupID)
         if var drive = meta.drive, let id = drive.folderID, try isLive(id) {
             if drive.folderName != name {
                 let (data, response) = try request("PATCH", "\(Self.filesURL)/\(id)?fields=id", json: ["name": name])
@@ -401,9 +536,22 @@ final class DriveSync {
                 drive.folderName = name
                 try record(meta.id) { $0.drive?.folderName = name }
             }
+            if drive.groupID != group {
+                let parent = try groupFolder(group)
+                let (found, response) = try request("GET", "\(Self.filesURL)/\(id)?fields=parents")
+                try Self.check(response, found, "look up the Drive folder of \(name)")
+                let old = (Self.json(found)["parents"] as? [String] ?? []).joined(separator: ",")
+                var move = URLComponents(string: "\(Self.filesURL)/\(id)")!
+                move.queryItems = [URLQueryItem(name: "addParents", value: parent), URLQueryItem(name: "removeParents", value: old),
+                                   URLQueryItem(name: "fields", value: "id")]
+                let (data, moved) = try request("PATCH", move.url!.absoluteString, json: [:])
+                try Self.check(moved, data, "move the Drive folder \(name)")
+                drive.groupID = group
+                try record(meta.id) { $0.drive?.groupID = group }
+            }
             return drive
         }
-        let drive = DriveState(folderID: try createFolder(name, parent: try rootFolder()), folderName: name)
+        let drive = DriveState(folderID: try createFolder(name, parent: try groupFolder(group)), folderName: name, groupID: group)
         try record(meta.id) { $0.drive = drive }
         return drive
     }
@@ -413,6 +561,56 @@ final class DriveSync {
         let id = try createFolder("Minutes", parent: nil)
         UserDefaults.standard.set(id, forKey: Self.rootFolderKey)
         return id
+    }
+
+    /// Minutes/<group name>, made when missing and renamed with the group; the root folder for no group.
+    private func groupFolder(_ groupID: String?) throws -> String {
+        let root = try rootFolder()
+        guard let groupID, let group = Workspace.groups().first(where: { $0.id == groupID }) else { return root }
+        var known = Self.groupFolders()
+        if let entry = known[groupID], try isLive(entry.id) {
+            if entry.name != group.name {
+                let (data, response) = try request("PATCH", "\(Self.filesURL)/\(entry.id)?fields=id", json: ["name": group.name])
+                try Self.check(response, data, "rename the Drive folder \(entry.name)")
+                known[groupID] = (entry.id, group.name)
+                Self.saveGroupFolders(known)
+            }
+            return entry.id
+        }
+        let id = try createFolder(group.name, parent: root)
+        known[groupID] = (id, group.name)
+        Self.saveGroupFolders(known)
+        return id
+    }
+
+    private static func groupFolders() -> [String: (id: String, name: String)] {
+        let stored = UserDefaults.standard.dictionary(forKey: groupFoldersKey) as? [String: [String]] ?? [:]
+        return stored.compactMapValues { $0.count == 2 ? ($0[0], $0[1]) : nil }
+    }
+
+    private static func saveGroupFolders(_ folders: [String: (id: String, name: String)]) {
+        UserDefaults.standard.set(folders.mapValues { [$0.id, $0.name] }, forKey: groupFoldersKey)
+    }
+
+    // Debounced: a burst of local changes makes one pass.
+    private func scheduleGroupSync() {
+        groupSync?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.syncGroups() }
+        groupSync = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: work)
+    }
+
+    /// Renames group folders whose group was renamed, then uploads whatever changed, group moves included.
+    private func syncGroups() {
+        guard active else { return }
+        let known = Self.groupFolders()
+        let renamed = Workspace.groups().filter { group in known[group.id].map { $0.name != group.name } ?? false }
+        if !renamed.isEmpty {
+            worker.async {
+                for group in renamed { _ = try? self.groupFolder(group.id) }
+            }
+        }
+        enqueuePending()
     }
 
     /// False when the file or folder is gone or in the trash.
@@ -477,7 +675,7 @@ final class DriveSync {
     }
 
     private func startSession(_ file: LocalFile, replacing existing: String?, parent: String) throws -> URL? {
-        var metadata: [String: Any] = ["name": file.name]
+        var metadata: [String: Any] = ["name": (file.name as NSString).lastPathComponent]
         let url: String
         if let existing {
             url = "\(Self.uploadURL)/\(existing)?uploadType=resumable&fields=id"
@@ -575,7 +773,10 @@ final class DriveSync {
         switch (name as NSString).pathExtension {
         case "mp4": return "video/mp4"
         case "wav": return "audio/wav"
+        case "flac": return "audio/flac"
         case "md": return "text/markdown"
+        case "jpg", "jpeg": return "image/jpeg"
+        case "png": return "image/png"
         default: return "application/octet-stream"
         }
     }

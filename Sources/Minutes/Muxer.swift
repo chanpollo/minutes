@@ -17,6 +17,8 @@ enum Muxer {
         let video: AVMutableCompositionTrack
         let videoFormat: CMFormatDescription?
         let transform: CGAffineTransform
+        /// The video starts after the audio.
+        let startsLate: Bool
         let audio: [AVMutableCompositionTrack]
     }
 
@@ -40,6 +42,17 @@ enum Muxer {
             try? fm.removeItem(at: partial)
             throw error
         }
+    }
+
+    /// Where the picture starts. Files muxed before the head was filled keep an empty edit up to their first frame.
+    static func firstFrame(in asset: AVAsset) async -> TimeInterval {
+        guard let track = try? await asset.loadTracks(withMediaType: .video).first,
+              let segments = try? await track.load(.segments),
+              segments.first?.isEmpty == true,
+              let start = segments.first(where: { !$0.isEmpty })?.timeMapping.target.start,
+              start.seconds.isFinite
+        else { return 0 }
+        return start.seconds
     }
 
     private static func compose(video: URL, audio: [URL], videoOffset: TimeInterval) async throws -> Source {
@@ -73,7 +86,7 @@ enum Muxer {
             audioOut.append(out)
         }
         return Source(assets: assets, composition: composition, video: videoOut, videoFormat: formats.first,
-                      transform: transform, audio: audioOut)
+                      transform: transform, startsLate: offset > .zero, audio: audioOut)
     }
 
     private static func write(_ source: Source, to url: URL, name: String) throws {
@@ -84,7 +97,7 @@ enum Muxer {
         let videoOutput = AVAssetReaderTrackOutput(track: source.video, outputSettings: nil)
         let videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: nil, sourceFormatHint: source.videoFormat)
         videoInput.transform = source.transform
-        var pumps = [Pump(output: videoOutput, input: videoInput)]
+        var pumps = [Pump(output: videoOutput, input: videoInput, fillsHead: source.startsLate)]
 
         if !source.audio.isEmpty {
             let mix = AVAssetReaderAudioMixOutput(audioTracks: source.audio, audioSettings: [
@@ -149,24 +162,51 @@ enum Muxer {
     private final class Pump: @unchecked Sendable {
         let output: AVAssetReaderOutput
         let input: AVAssetWriterInput
+        /// Before its first frame a late video has only the composition's empty edit, which the player shows as black.
+        /// The first frame is written a second time from zero instead, so every frame keeps its time.
+        private var fillsHead: Bool
+        /// The first frame, waiting while its copy from zero goes in.
+        private var pending: CMSampleBuffer?
         private var done = false
 
-        init(output: AVAssetReaderOutput, input: AVAssetWriterInput) {
+        init(output: AVAssetReaderOutput, input: AVAssetWriterInput, fillsHead: Bool = false) {
             self.output = output
             self.input = input
+            self.fillsHead = fillsHead
         }
 
         func run(on queue: DispatchQueue, group: DispatchGroup) {
             input.requestMediaDataWhenReady(on: queue) { [self] in
                 guard !done else { return }
                 while input.isReadyForMoreMediaData {
-                    if let sample = output.copyNextSampleBuffer(), input.append(sample) { continue }
+                    let sample: CMSampleBuffer?
+                    if let held = pending {
+                        pending = nil
+                        sample = held
+                    } else {
+                        sample = next()
+                    }
+                    if let sample, input.append(sample) { continue }
                     done = true
                     input.markAsFinished()
                     group.leave()
                     return
                 }
             }
+        }
+
+        private func next() -> CMSampleBuffer? {
+            guard let sample = output.copyNextSampleBuffer() else { return nil }
+            guard fillsHead else { return sample }
+            // The empty edit arrives as a buffer with no samples.
+            if sample.numSamples == 0 { return next() }
+            fillsHead = false
+            let start = sample.presentationTimeStamp
+            guard start > .zero, let head = try? CMSampleBuffer(copying: sample, withNewTiming: [
+                CMSampleTimingInfo(duration: start, presentationTimeStamp: .zero, decodeTimeStamp: .zero),
+            ]) else { return sample }
+            pending = sample
+            return head
         }
     }
 

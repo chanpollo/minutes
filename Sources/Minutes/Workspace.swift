@@ -8,6 +8,12 @@ struct MeetingMeta: Codable {
     var endedAt: Date?
     var app: String?
     var bundleID: String?
+    // Written when recording starts; meetings from before modes have none and recorded the screen.
+    var mode: RecordMode?
+    // Names on the calendar event, organiser first, without the user.
+    var attendees: [String]?
+    // The calendar event was chosen by hand among those on at the start, so a summary never picks another.
+    var eventPicked: Bool?
     // Seconds from the start of the WAVs to the first video frame; kept so a recording finished after a crash can still be muxed.
     var videoOffset: TimeInterval?
     // Set when transcription failed, so launch does not retry it every time.
@@ -15,11 +21,42 @@ struct MeetingMeta: Codable {
     var summaryModel: String?
     var summarizedAt: Date?
     var drive: DriveState?
+    var sync: FolderSyncState?
+    var groupID: String?
+    // Not sent for summary unless the user overrides it for this meeting.
+    var confidential: Bool?
+    // The summary was sent although the meeting is confidential, on the user's word; marking it again clears this.
+    var sentAnyway: Bool?
+    var videoDeletedAt: Date?
+    var audioDeletedAt: Date?
+    // Sidebar only: pinned above the days, or moved out of the lists into Archived. Archiving clears the pin.
+    var pinnedAt: Date?
+    var archivedAt: Date?
+    var briefing: BriefingInfo?
+    // Made with New Note, notes first; stays set when a recording is made into it later.
+    var note: Bool?
+
+    var recordMode: RecordMode { mode ?? .screen }
+
+    /// A note nothing has been recorded into: a recording sets `mode`.
+    var isNote: Bool { note == true && mode == nil }
+}
+
+/// A user-made group of meetings, kept in groups.json at the workspace root.
+struct MeetingGroup: Codable, Hashable, Identifiable {
+    var id: String
+    var name: String
 }
 
 struct DriveState: Codable {
     var folderID: String?
     var folderName: String?
+    // The group whose Drive folder holds the meeting's folder; nil for Minutes itself.
+    var groupID: String?
+    // The frames/ sub-folder, made when the summary or notes first show a picture.
+    var framesFolderID: String?
+    // attachments/, made when notes.md first shows a picture of the user's own.
+    var attachmentsFolderID: String?
     var files: [String: DriveFile] = [:]
 }
 
@@ -38,7 +75,7 @@ extension Notification.Name {
 enum Workspace {
     static let defaultRoot = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Documents/Meetings")
     // Recordings are written here and moved into the workspace when finished, so a synced folder never sees half-written files.
-    static let staging = FileManager.default.homeDirectoryForCurrentUser
+    nonisolated(unsafe) static var staging = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/Minutes/Recording")
 
     private static let rootKey = "workspacePath"
@@ -112,25 +149,104 @@ enum Workspace {
         return meta
     }
 
-    /// Moves a finished recording from staging into the workspace.
+    /// Moves a finished recording from staging into the workspace. A recording made into a note joins the note's
+    /// folder instead, which keeps its name; the start becomes the recording's. A fresh note has no mode, so it skips
+    /// the lookup, which reads every meta.json.
     static func moveIn(_ staged: URL) throws -> URL {
         guard let meta = readMeta(staged) else { throw CocoaError(.fileReadNoSuchFile, userInfo: [NSFilePathErrorKey: staged.path]) }
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let fm = FileManager.default
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        if meta.note == true, meta.mode != nil, let note = folder(id: meta.id) {
+            for file in try fm.contentsOfDirectory(at: staged, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
+            where file.lastPathComponent != "meta.json" {
+                let target = note.appendingPathComponent(file.lastPathComponent)
+                if fm.fileExists(atPath: target.path) { try fm.removeItem(at: target) }
+                try fm.moveItem(at: file, to: target)
+            }
+            try updateMeta(note) {
+                $0.app = meta.app
+                $0.bundleID = meta.bundleID
+                $0.mode = meta.mode
+                $0.startedAt = meta.startedAt
+                $0.endedAt = meta.endedAt
+                $0.videoOffset = meta.videoOffset
+                if meta.confidential == true { $0.confidential = true }
+            }
+            try? fm.removeItem(at: staged)
+            notifyChanged()
+            return note
+        }
         let target = uniqueURL(in: root, name: folderName(title: meta.title, startedAt: meta.startedAt))
-        try FileManager.default.moveItem(at: staged, to: target)
+        try fm.moveItem(at: staged, to: target)
         notifyChanged()
         return target
     }
 
-    /// Renames the meeting and its folder; returns the new folder.
+    /// New Note: an empty note dated now, made in staging and moved in like a recording.
+    static func makeNote(groupID: String? = nil, now: Date = Date()) throws -> (folder: URL, meta: MeetingMeta) {
+        var meta = MeetingMeta(id: UUID().uuidString, title: "Untitled", startedAt: now, endedAt: now, note: true)
+        meta.groupID = groupID
+        let staged = staging.appendingPathComponent(meta.id)
+        try FileManager.default.createDirectory(at: staged, withIntermediateDirectories: true)
+        try writeMeta(meta, to: staged)
+        try Data().write(to: staged.appendingPathComponent("notes.md"))
+        return (try moveIn(staged), meta)
+    }
+
+    /// `meta.isNote` and nothing recorded on disk either: the page, the row and the command line treat it as a note.
+    static func isNote(_ folder: URL, meta: MeetingMeta) -> Bool {
+        guard meta.isNote else { return false }
+        let exists = { (name: String) in FileManager.default.fileExists(atPath: folder.appendingPathComponent(name).path) }
+        return !exists("transcript.md") && !exists("meeting.mp4") && AudioTracks.existing(in: folder).isEmpty
+    }
+
+    /// Renames the meeting and its folder, and the title line of its transcript and summary; returns the new folder.
     static func rename(_ folder: URL, to title: String) throws -> URL {
+        let old = readMeta(folder)?.title
         let meta = try updateMeta(folder) { $0.title = title.trimmingCharacters(in: .whitespacesAndNewlines) }
         let name = folderName(title: meta.title, startedAt: meta.startedAt)
-        guard name != folder.lastPathComponent else { notifyChanged(); return folder }
-        let target = uniqueURL(in: folder.deletingLastPathComponent(), name: name)
-        try FileManager.default.moveItem(at: folder, to: target)
+        var target = folder
+        if name != folder.lastPathComponent {
+            target = uniqueURL(in: folder.deletingLastPathComponent(), name: name)
+            try FileManager.default.moveItem(at: folder, to: target)
+        }
+        if let old, old != meta.title { retitle(target, from: old, to: meta.title) }
+        CommentFile.refreshMarkdown(target)
         notifyChanged()
         return target
+    }
+
+    /// Rewrites the first line of transcript.md and summary.md when it is still `# <old>`; a header the user changed
+    /// by hand is left alone.
+    static func retitle(_ folder: URL, from old: String, to new: String) {
+        for name in ["transcript.md", "summary.md"] {
+            let url = folder.appendingPathComponent(name)
+            guard let text = try? String(contentsOf: url, encoding: .utf8), let changed = retitled(text, from: old, to: new)
+            else { continue }
+            try? changed.write(to: url, atomically: true, encoding: .utf8)
+        }
+    }
+
+    /// `text` with its header changed, or nil when the header is not `# old`. The body is kept byte for byte.
+    static func retitled(_ text: String, from old: String, to new: String) -> String? {
+        let header = "# \(old)"
+        guard text == header || text.hasPrefix(header + "\n") || text.hasPrefix(header + "\r\n") else { return nil }
+        return "# \(new)" + text.dropFirst(header.count)
+    }
+
+    private static var groupsURL: URL { root.appendingPathComponent("groups.json") }
+
+    static func groups() -> [MeetingGroup] {
+        guard let data = try? Data(contentsOf: groupsURL) else { return [] }
+        return (try? decoder.decode([MeetingGroup].self, from: data)) ?? []
+    }
+
+    static func saveGroups(_ groups: [MeetingGroup]) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try encoder.encode(groups).write(to: groupsURL, options: .atomic)
+        notifyChanged()
     }
 
     static func notifyChanged() {

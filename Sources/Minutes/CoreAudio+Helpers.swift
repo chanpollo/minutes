@@ -39,6 +39,16 @@ enum CA {
         return value?.takeRetainedValue() as String?
     }
 
+    /// The audio process object for `pid`, once that process has used Core Audio.
+    static func processObject(pid: pid_t) -> AudioObjectID? {
+        var addr = address(kAudioHardwarePropertyTranslatePIDToProcessObject)
+        var pid = pid
+        var object = AudioObjectID(kAudioObjectUnknown)
+        var size = UInt32(MemoryLayout<AudioObjectID>.size)
+        let status = AudioObjectGetPropertyData(system, &addr, UInt32(MemoryLayout<pid_t>.size), &pid, &size, &object)
+        return status == noErr && object != kAudioObjectUnknown ? object : nil
+    }
+
     static func objects(_ object: AudioObjectID, _ selector: AudioObjectPropertySelector) -> [AudioObjectID] {
         var addr = address(selector)
         var size: UInt32 = 0
