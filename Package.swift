@@ -6,5 +6,6 @@ let package = Package(
     platforms: [.macOS("14.2")],
     targets: [
         .executableTarget(name: "Minutes", path: "Sources/Minutes"),
+        .testTarget(name: "MinutesTests", dependencies: ["Minutes"], path: "Tests/MinutesTests"),
     ]
 )
