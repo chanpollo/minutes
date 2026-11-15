@@ -1,6 +1,6 @@
 # Minutes
 
-A macOS app (Dock and menu bar) that records your meetings, transcribes them on the Mac and summarises them with your Claude subscription.
+A macOS app (Dock and menu bar) that records your meetings, transcribes them on the Mac and summarises them with Claude Code, Codex, a local Ollama model or Gemini through agy, whichever you pick.
 
 ![Notes window with a meeting summary](docs/images/notes-summary.png)
 
@@ -41,7 +41,7 @@ Each meeting is a page:
 - **Title:** click it to edit. Renaming also renames the folder.
 - **Header:** date, time, length and app; the group menu; **Show in Finder**; **Export** (one Markdown file with the summary, notes and transcript); the invitees when they came from the calendar.
 - **Don't send for summary (confidential):** see above. A confidential page offers **Summarise anyway**, which clears the mark.
-- **Summary:** shows `summary.md`, the model and time, and **Re-run with…** Sonnet, Opus or Haiku. Action items are a table; the time button plays that moment. With **Pictures from the video** on, the summary can show a few frames from `meeting.mp4` under the points they illustrate; a picture's time plays from there and a click shows it larger. The pictures stay after the video is cleaned up.
+- **Summary:** shows `summary.md`, the model and time, and **Re-run with…** the models of every provider found on this Mac (Claude Code, Codex, Ollama, Gemini through agy), so one meeting can be summarised by each in turn. Action items are a table; the time button plays that moment. With **Pictures from the video** on, the summary can show a few frames from `meeting.mp4` under the points they illustrate; a picture's time plays from there and a click shows it larger. The pictures stay after the video is cleaned up.
 - **Audio briefing:** **Listen** under the summary; see [Audio briefing](#audio-briefing).
 - **Transcript:** click a line to play from that moment. Right-click a turn and choose **Rename Speaker…** to put a name in place of a label such as "Speaker 2" in every turn. Me and Others name a track, not a person: they cannot be renamed, and no speaker can be renamed to one of them.
 - **Comments:** select text in the summary or transcript and press **Comment** (or **Edit › Add Comment**, ⌘⇧K). Each comment is a thread, as on a shared artifact: click it and **Reply…** opens under it. **Send to Claude** (⌘↩), or @claude anywhere in the text, has Claude read the whole thread and the record, change what it asks for wherever it appears (a misheard name noted on the transcript is fixed in the summary too) and answer in the thread; **Comment** or **Reply** (⇧⌘↩) only posts. Claude resolves the thread itself when it made the change, and leaves it open after answering a question or asking one back. Each of Claude's changes has an **Undo**, newest first, while nothing else has changed the text. **✓** at the top right resolves a thread yourself; resolved threads lose their highlight and sit under **Resolved** at the foot of the column with who resolved them, and **Reopen** brings one back. Your comments and replies can be edited and deleted. Claude is not asked when summaries are off or the meeting is confidential. When a re-run or a renamed speaker removes the passage, its comment is listed under "Comments on earlier text". Export includes them.
