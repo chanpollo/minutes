@@ -137,7 +137,7 @@ brew install cmake    # once
 
 The .dmg holds a universal (Apple silicon and Intel) Minutes.app with `whisper-cli` and the sherpa-onnx speaker diarizer inside; the models are not in it. The first run builds whisper.cpp from source for both architectures and keeps the build in `build/release`, so later runs are quick. The script stops if any binary in the app needs a macOS newer than 14.2.
 
-`release.sh` still reads the version from `Resources/Info.plist` and uses the git commit count as the build number; it does not yet read `VERSION` and `BUILD_NUMBER` (see above).
+`release.sh` stamps the app the way `build.sh` does (see above), with the version from `VERSION` and the build number `build.sh` last wrote to `BUILD_NUMBER`, so the .dmg carries the build that was tried here; it does not raise `BUILD_NUMBER` itself. Run `./build.sh` before a release when the code has changed since the last build.
 
 Signing picks a **Developer ID Application** certificate when the keychain has one (`CODESIGN_IDENTITY` overrides it). To notarise, store the credentials once and pass the profile name:
 
