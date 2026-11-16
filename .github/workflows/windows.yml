@@ -19,16 +19,22 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
+      - uses: microsoft/setup-msbuild@v2
       - name: Restore core tests
-        run: dotnet restore windows/Minutes.Core.Tests/Minutes.Core.Tests.csproj
+        working-directory: windows
+        run: dotnet restore Minutes.Core.Tests/Minutes.Core.Tests.csproj
       - name: Test portable logic
-        run: dotnet test windows/Minutes.Core.Tests/Minutes.Core.Tests.csproj --no-restore -c Release --logger "trx;LogFileName=core.trx" --results-directory windows/artifacts/tests
+        working-directory: windows
+        run: dotnet test Minutes.Core.Tests/Minutes.Core.Tests.csproj --no-restore -c Release --logger "trx;LogFileName=core.trx" --results-directory artifacts/tests
       - name: Restore Windows app
-        run: dotnet restore windows/Minutes.App/Minutes.App.csproj -p:Platform=x64
+        working-directory: windows
+        run: msbuild Minutes.App/Minutes.App.csproj -t:Restore -p:Platform=x64 -p:Configuration=Release
       - name: Build Windows app
-        run: dotnet build windows/Minutes.App/Minutes.App.csproj --no-restore -c Release -p:Platform=x64
+        working-directory: windows
+        run: msbuild Minutes.App/Minutes.App.csproj -t:Build -p:Configuration=Release -p:Platform=x64
       - name: Publish unsigned portable app
-        run: dotnet publish windows/Minutes.App/Minutes.App.csproj --no-restore --no-build -c Release -p:Platform=x64 -o windows/artifacts/Minutes
+        working-directory: windows
+        run: msbuild Minutes.App/Minutes.App.csproj -t:Publish -p:Configuration=Release -p:Platform=x64 -p:PublishDir="${{ github.workspace }}/windows/artifacts/Minutes/"
       - name: Bundle local speech engines
         shell: pwsh
         run: ./windows/scripts/Bundle-Tools.ps1 -Destination windows/artifacts/Minutes
