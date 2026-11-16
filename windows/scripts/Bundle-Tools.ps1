@@ -30,3 +30,7 @@ Invoke-WebRequest 'https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/v1.12.15
 Invoke-WebRequest 'https://raw.githubusercontent.com/microsoft/onnxruntime/v1.17.1/LICENSE' -OutFile "$licenses/onnxruntime-LICENSE"
 Copy-Item windows/docs/THIRD-PARTY.md "$licenses/THIRD-PARTY.md"
 if (-not (Test-Path "$tools/whisper-cli.exe")) { throw 'whisper-cli missing from bundle' }
+foreach ($name in @('whisper-cli.exe', 'sherpa-onnx-offline-speaker-diarization.exe')) {
+  & (Join-Path $tools $name) --help *> (Join-Path $work "$name-help.txt")
+  if ($LASTEXITCODE -notin @(0, 1)) { throw "$name failed to load: $LASTEXITCODE" }
+}
