@@ -11,6 +11,10 @@ public sealed class AppSettings
     public string SpeechLanguage { get; set; } = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName=="th"?"th":"auto";
     public string SummaryProvider { get; set; } = "claude";
     public string SummaryModel { get; set; } = "sonnet";
+    public string BriefingMode { get; set; } = "request";
+    public string? BriefingVoiceThai { get; set; }
+    public string? BriefingVoiceEnglish { get; set; }
+    public int BriefingRate { get; set; } = 2;
     public string SummaryLanguage { get; set; } = "thai";
     public bool AskAnyApp { get; set; }
     public HashSet<string> MeetingAppsOff { get; set; } = new(StringComparer.OrdinalIgnoreCase);
@@ -26,6 +30,7 @@ public sealed class AppSettings
     public int KeepAudioDays { get; set; }
     public bool DeleteOnDrive { get; set; }
     public string SyncMode { get; set; } = "off";
+    public string? GoogleClientID { get; set; }
     public string? SyncFolder { get; set; }
     public bool DriveUploadText { get; set; } = true;
     public bool DriveUploadMedia { get; set; } = true;

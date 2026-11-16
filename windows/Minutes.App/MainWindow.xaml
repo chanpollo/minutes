@@ -20,7 +20,7 @@
     <Grid Grid.Row="2" Grid.Column="1" RowSpacing="8"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="220"/><RowDefinition Height="*"/></Grid.RowDefinitions>
       <TextBox x:Name="MeetingTitle" Header="Title" LostFocus="Title_LostFocus"/>
       <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8"><CheckBox x:Name="Confidential" Content="Confidential" Click="Confidential_Click"/><Button Content="Pin" Click="Pin_Click"/><Button Content="Archive" Click="Archive_Click"/><Button Content="Export…" Click="Export_Click"/></StackPanel>
-      <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8"><Button Content="Transcribe" Click="Transcribe_Click"/><Button Content="Sync now" Click="Sync_Click"/><Button Content="Open folder" Click="OpenFolder_Click"/><Button Content="Listen" Click="Listen_Click"/></StackPanel>
+      <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8"><Button Content="Transcribe" Click="Transcribe_Click"/><Button Content="Sync now" Click="Sync_Click"/><Button Content="Open folder" Click="OpenFolder_Click"/><Button Content="Listen" Click="Listen_Click"/><Button Content="Capture" Click="Capture_Click"/></StackPanel>
       <MediaPlayerElement x:Name="Player" Grid.Row="3" AreTransportControlsEnabled="True"/>
       <TabView Grid.Row="4" IsAddTabButtonVisible="False"><TabViewItem Header="Summary" IsClosable="False"><ScrollViewer><TextBox x:Name="Summary" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" BorderThickness="0"/></ScrollViewer></TabViewItem><TabViewItem Header="Transcript" IsClosable="False"><ScrollViewer><TextBox x:Name="Transcript" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" BorderThickness="0"/></ScrollViewer></TabViewItem></TabView>
     </Grid>
@@ -28,7 +28,7 @@
       <TextBox x:Name="Notes" Header="Notes" AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top" TextChanged="Notes_Changed"/>
       <Button Grid.Row="1" Content="Comment on selection…" Click="Comment_Click"/>
       <ListView x:Name="Comments" Grid.Row="2"/>
-      <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="8"><Button Content="Reply…" Click="Reply_Click"/><Button Content="Resolve / Reopen" Click="Resolve_Click"/></StackPanel>
+      <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="8"><Button Content="Reply…" Click="Reply_Click"/><Button Content="Ask AI" Click="AskAI_Click"/><Button Content="Undo AI" Click="UndoAI_Click"/><Button Content="Resolve / Reopen" Click="Resolve_Click"/></StackPanel>
     </Grid>
   </Grid>
 </Window>

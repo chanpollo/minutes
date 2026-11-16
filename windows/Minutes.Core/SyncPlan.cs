@@ -18,7 +18,11 @@ public static class SyncPlan
         {
             names.AddRange(TextFiles.Where(Exists));
             foreach (var file in new[] { "summary.md", "notes.md" }.Where(Exists))
-                names.AddRange(Images(File.ReadAllText(Path.Combine(folder, file))).Where(p => p.StartsWith("frames/", StringComparison.Ordinal) || file == "notes.md" && p.StartsWith("attachments/", StringComparison.Ordinal)).Where(Exists));
+                {
+                    var text=File.ReadAllText(Path.Combine(folder,file));
+                    names.AddRange(Images(text).Where(p=>p.StartsWith("frames/",StringComparison.Ordinal)).Where(Exists));
+                    if(file=="notes.md")names.AddRange(Attachments.Referenced(text).Where(Exists));
+                }
         }
         if (options.Media)
         {

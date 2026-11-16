@@ -15,6 +15,7 @@ public sealed partial class MainWindow : Window
     private Workspace workspace;
     private Meeting? selected;
     private bool loading;
+    private readonly System.Net.Http.HttpClient googleHttp=new(){Timeout=TimeSpan.FromMinutes(10)};
     private readonly AudioRecorder recorder=new();
     private VideoRecorder? video;
     private readonly SemaphoreSlim jobs=new(1);
@@ -34,7 +35,7 @@ public sealed partial class MainWindow : Window
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1440,860));
         workspace=new(settings.WorkspacePath);summaries=new(AppSettings.Support,settings.FindTool);
         desktop=new(this,()=>Activate(),()=>Record_Click(this,new RoutedEventArgs()),()=>Stop_Click(this,new RoutedEventArgs()),()=>NewNote_Click(this,new RoutedEventArgs()),()=>Settings_Click(this,new RoutedEventArgs()));
-        Closed+=(_,_)=>{desktop.Dispose();recorder.Dispose();summaries.Dispose();maintenance.Stop();micPoll.Stop();Player.MediaPlayer?.Dispose();};
+        Closed+=(_,_)=>{desktop.Dispose();recorder.Dispose();summaries.Dispose();googleHttp.Dispose();maintenance.Stop();micPoll.Stop();Player.MediaPlayer?.Dispose();};
         Refresh();Status.Message="Windows preview · voice captures microphone and whole-system audio. See TESTING.md for gaps.";
         maintenance.Tick+=async(_,_)=>await RunJob(async()=>{await CleanupAsync();await SyncAllAsync();},"Maintenance complete");maintenance.Start();micPoll.Tick+=async(_,_)=>await PollCallsAsync();micPoll.Start();
     }
@@ -58,7 +59,7 @@ public sealed partial class MainWindow : Window
         loading=false;
     }
     private List<MeetingComment> commentList=[];
-    private void LoadComments(){commentList=selected==null?[]:File.Exists(Path.Combine(selected.Folder,"comments.json"))?JsonFiles.Read<List<MeetingComment>>(Path.Combine(selected.Folder,"comments.json"))??[]:[];Comments.ItemsSource=commentList;}
+    private void LoadComments(){commentList=selected==null?[]:CommentFiles.Read(selected.Folder);Comments.ItemsSource=commentList;}
     private void SaveComments(){if(selected==null)return;CommentFiles.Save(selected.Folder,commentList,selected.Meta.Title);Comments.ItemsSource=null;Comments.ItemsSource=commentList;}
     private async Task RunJob(Func<Task> work,string success)
     {
@@ -165,7 +166,7 @@ public sealed partial class MainWindow : Window
     {
         if(selected==null)return;var meeting=selected;var force=false;
         if(meeting.Meta.Confidential==true){force=await Confirm("Send this confidential meeting?","The transcript and frame text will be sent to the selected summary provider for this request.","Send for summary");if(!force)return;}
-        await RunJob(async()=>{Status.Message="Summarising…";await summaries.SummarizeAsync(meeting.Folder,CurrentModel(),settings.SummaryLanguage,settings.SummaryProvider=="off",force);Show(new(meeting.Folder,Workspace.ReadMeta(meeting.Folder)!));await SyncMeetingAsync(selected!);},"Summary ready");
+        await RunJob(async()=>{Status.Message="Summarising…";if(File.Exists(Path.Combine(meeting.Folder,"meeting.mp4"))&&!File.Exists(Path.Combine(meeting.Folder,"frames","frames.json")))await FrameExtractor.ExtractAsync(meeting.Folder,new Progress<string>(s=>Status.Message=s));await summaries.SummarizeAsync(meeting.Folder,CurrentModel(),settings.SummaryLanguage,settings.SummaryProvider=="off",force);Show(new(meeting.Folder,Workspace.ReadMeta(meeting.Folder)!));await SyncMeetingAsync(selected!);},"Summary ready");
     }
     private async void Comment_Click(object sender,RoutedEventArgs e)
     {
@@ -176,6 +177,29 @@ public sealed partial class MainWindow : Window
     }
     private async void Reply_Click(object sender,RoutedEventArgs e)
     {if(Comments.SelectedItem is not MeetingComment c)return;var text=await Ask("Reply",multiline:true);if(string.IsNullOrWhiteSpace(text))return;(c.Replies??=[]).Add(new(){Author=Environment.UserName,Text=text.Trim()});SaveComments();}
+    private async void AskAI_Click(object sender,RoutedEventArgs e)
+    {
+        if(selected==null||Comments.SelectedItem is not MeetingComment comment)return;var meeting=selected;
+        await RunJob(async()=>
+        {
+            var meta=Workspace.ReadMeta(meeting.Folder)!;
+            if(settings.SummaryProvider=="off")throw new InvalidOperationException("Summaries are off in Settings");
+            if(meta.Confidential==true)throw new InvalidOperationException("Marked confidential");
+            var documents=new[]{"summary.md","transcript.md"}.Where(n=>File.Exists(Path.Combine(meeting.Folder,n))).ToDictionary(n=>n,n=>Read(meeting.Folder,n));
+            var answer=CommentRevision.Parse(await summaries.RunAsync(CurrentModel(),CommentInputs.Prompt(comment.Target),CommentInputs.Input(comment,meta.Title,documents)));
+            var now=documents.Keys.ToDictionary(n=>n,n=>Read(meeting.Folder,n));
+            var changed=CommentRevision.Apply(answer.Edits??[],now,comment.Target=="summary"?"summary.md":"transcript.md");
+            var message=new CommentMessage{Author=CurrentModel().Provider switch{"claude"=>"Claude","codex"=>"Codex","agy"=>"Gemini",_=>"Ollama"},Text=string.IsNullOrWhiteSpace(answer.Reply)?"No change.":answer.Reply.Trim(),Claude=true,Model=CurrentModel().RawValue};
+            CommentRevision.Save(meeting.Folder,message,now,changed);(comment.Replies??=[]).Add(message);
+            if(answer.Resolve==true&&comment.ResolvedAt==null){comment.ResolvedAt=DateTimeOffset.Now;comment.ResolvedBy=message.Author;}
+            CommentFiles.Save(meeting.Folder,commentList,meta.Title);Show(new(meeting.Folder,Workspace.ReadMeta(meeting.Folder)!));await SyncMeetingAsync(meeting);
+        },"Comment answered");
+    }
+    private async void UndoAI_Click(object sender,RoutedEventArgs e)
+    {
+        if(selected==null||Comments.SelectedItem is not MeetingComment c)return;var reply=c.Replies?.LastOrDefault(r=>r.Revised?.Count>0&&r.Undone!=true);if(reply==null)return;
+        await RunJob(()=>{CommentRevision.Undo(selected.Folder,reply);SaveComments();Show(selected);return Task.CompletedTask;},"Revision undone");
+    }
     private void Resolve_Click(object sender,RoutedEventArgs e)
     {if(Comments.SelectedItem is not MeetingComment c)return;c.ResolvedAt=c.ResolvedAt==null?DateTimeOffset.Now:null;c.ResolvedBy=c.ResolvedAt==null?null:Environment.UserName;SaveComments();}
     private async void Export_Click(object sender,RoutedEventArgs e)
@@ -184,20 +208,32 @@ public sealed partial class MainWindow : Window
         await RunJob(()=>{var text=meeting.Meta.IsNote?"# "+meeting.Meta.Title+"\n\n"+Read(meeting.Folder,"notes.md"):string.Join("\n\n",new[]{"summary.md","transcript.md","notes.md","comments.md"}.Select(n=>Read(meeting.Folder,n)).Where(t=>t.Length>0));JsonFiles.AtomicWrite(file.Path,text);return Task.CompletedTask;},"Exported");
     }
     private void OpenFolder_Click(object sender,RoutedEventArgs e){if(selected!=null)Process.Start(new ProcessStartInfo(selected.Folder){UseShellExecute=true});}
+    private GoogleOAuth GoogleAuth()=>new(settings.GoogleClientID??"",new ProtectedTokenStore("google-client-secret").Read()??"",new ProtectedTokenStore("google-refresh-token"),googleHttp);
     private async Task SyncMeetingAsync(Meeting meeting)
-    {if(settings.SyncMode=="folder"&&settings.SyncFolder!=null)await new FolderSync(workspace).CopyAsync(meeting,settings.SyncFolder,new(settings.DriveUploadText,settings.DriveUploadMedia),settings.SyncFolderPerGroup);}
+    {
+        if(settings.SyncMode=="folder"&&settings.SyncFolder!=null)await Task.Run(()=>new FolderSync(workspace).CopyAsync(meeting,settings.SyncFolder,new(settings.DriveUploadText,settings.DriveUploadMedia),settings.SyncFolderPerGroup));
+        else if(settings.SyncMode=="googleDrive")await new GoogleDriveSync(workspace,GoogleAuth(),googleHttp).CopyAsync(meeting,new(settings.DriveUploadText,settings.DriveUploadMedia),settings.SyncFolderPerGroup);
+    }
     private async Task WithdrawAsync(Meeting meeting)
-    {if(meeting.Meta.Sync!=null)await new FolderSync(workspace).CopyAsync(meeting,settings.SyncFolder??"");}
+    {
+        if(meeting.Meta.Sync!=null)await Task.Run(()=>new FolderSync(workspace).CopyAsync(meeting,settings.SyncFolder??""));
+        if(meeting.Meta.Drive!=null)await new GoogleDriveSync(workspace,GoogleAuth(),googleHttp).WithdrawAsync(meeting);
+    }
     private async Task SyncAllAsync(){foreach(var m in workspace.Meetings())if(m.Meta.Confidential==true)await WithdrawAsync(m);else await SyncMeetingAsync(m);}
     private async void Sync_Click(object sender,RoutedEventArgs e){if(selected!=null)await RunJob(()=>SyncMeetingAsync(selected),"Sync complete");}
     private async Task CleanupAsync()
     {
         await Task.Run(()=>Housekeeping.Run(workspace,DateTimeOffset.Now,new(settings.KeepVideoDays,settings.KeepAudioDays)));
     }
+    private async void Capture_Click(object sender,RoutedEventArgs e)
+    {
+        if(selected==null||recorder.IsRecording)return;var meeting=selected;
+        await RunJob(async()=>{var path=await FrameExtractor.CaptureAsync(meeting.Folder,Player.MediaPlayer?.PlaybackSession.Position.TotalSeconds??0);Notes.Text+="\n!["+Transcripts.Clock(Player.MediaPlayer?.PlaybackSession.Position.TotalSeconds??0)+"]("+path+")\n";},"Frame added to notes");
+    }
     private async void Listen_Click(object sender,RoutedEventArgs e)
     {
-        if(selected==null||recorder.IsRecording)return;var script=Read(selected.Folder,"briefing.md");if(script.Length==0){Status.Message="No briefing.md yet. Briefing generation is pending; see PARITY.md.";return;}
-        await RunJob(async()=>{Player.MediaPlayer?.Pause();using var synth=new SpeechSynthesizer();var audio=await synth.SynthesizeTextToStreamAsync(script);var player=new Windows.Media.Playback.MediaPlayer();player.Source=MediaSource.CreateFromStream(audio,audio.ContentType);Player.SetMediaPlayer(player);Player.Visibility=Visibility.Visible;player.Play();},"Playing briefing");
+        if(selected==null||recorder.IsRecording||settings.BriefingMode=="off")return;var meeting=selected;
+        await RunJob(async()=>{Player.MediaPlayer?.Pause();var file=await new BriefingService(settings,summaries).MakeAsync(meeting.Folder);Player.Source=MediaSource.CreateFromUri(new Uri(file));Player.Visibility=Visibility.Visible;Player.MediaPlayer?.Play();},"Playing briefing");
     }
     private async Task PollCallsAsync()
     {
@@ -263,7 +299,15 @@ public sealed partial class MainWindow : Window
         var speech=Choice("Spoken language",["th","en","auto"],settings.SpeechLanguage);
         var signin=new Button{Content="Sign In…"};signin.Click+=(_,_)=>{try{DesktopIntegration.SignIn(provider.SelectedItem?.ToString()??"claude",settings);}catch(Exception ex){Status.Message=ex.Message;}};panel.Children.Add(signin);
         var models=new Button{Content="Download Speech Models…"};models.Click+=async(_,_)=>await RunJob(()=>new ModelStore(Path.Combine(AppSettings.Support,"models")).DownloadAsync(settings.SeparateSpeakers,new Progress<string>(s=>Status.Message=s)),"Speech models installed");panel.Children.Add(models);
-        var sync=Choice("Sync",["off","folder"],settings.SyncMode);
+        var sync=Choice("Sync",["off","folder","googleDrive"],settings.SyncMode);
+        var googleClient=Text("Google Desktop OAuth client ID (your own)",settings.GoogleClientID??"");
+        var googleSecret=new PasswordBox{Header="Google Desktop OAuth client secret",Password=new ProtectedTokenStore("google-client-secret").Read()??""};panel.Children.Add(googleSecret);
+        var connect=new Button{Content="Connect Google Drive…"};connect.Click+=async(_,_)=>await RunJob(async()=>
+        {
+            var auth=new GoogleOAuth(googleClient.Text,googleSecret.Password,new ProtectedTokenStore("google-refresh-token"),googleHttp);
+            await auth.ConnectAsync(uri=>Process.Start(new ProcessStartInfo(uri.AbsoluteUri){UseShellExecute=true}));settings.GoogleClientID=googleClient.Text;new ProtectedTokenStore("google-client-secret").Save(googleSecret.Password);settings.Save();
+        },"Google Drive connected");panel.Children.Add(connect);
+        var disconnect=new Button{Content="Disconnect Google Drive"};disconnect.Click+=async(_,_)=>await RunJob(()=>GoogleAuth().DisconnectAsync(),"Google Drive disconnected");panel.Children.Add(disconnect);
         var syncFolder=Text("Sync folder (Google Drive, OneDrive or Dropbox)",settings.SyncFolder??"");
         var startup=new CheckBox{Content="Open at login",IsChecked=DesktopIntegration.IsStartupEnabled};panel.Children.Add(startup);
         var about=new TextBlock{Text="Minutes 0.7.0 · Windows preview\n"+string.Join("\n",Changelog.Parse(Read(AppContext.BaseDirectory,"CHANGELOG.md")).Take(1).SelectMany(r=>r.Items)),TextWrapping=TextWrapping.Wrap};panel.Children.Add(about);
