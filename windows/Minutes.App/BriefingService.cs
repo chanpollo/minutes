@@ -1,5 +1,6 @@
 using Minutes.Core;
 using NAudio.Wave;
+using NAudio.MediaFoundation;
 using Windows.Media.SpeechSynthesis;
 
 namespace Minutes.App;

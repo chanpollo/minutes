@@ -13,11 +13,11 @@ internal static class FrameExtractor
     public static async Task<IReadOnlyList<VideoFrame>> ExtractAsync(string folder,IProgress<string>? progress=null,CancellationToken cancel=default)
     {
         var video=Path.Combine(folder,"meeting.mp4");if(!File.Exists(video))return [];
-        var clip=await MediaClip.CreateFromFileAsync(await StorageFile.GetFileFromPathAsync(video));var samples=new List<FrameSample>();
+        var clip=await MediaClip.CreateFromFileAsync(await StorageFile.GetFileFromPathAsync(video));var composition=new MediaComposition();composition.Clips.Add(clip);var samples=new List<FrameSample>();
         for(var t=0d;t<clip.OriginalDuration.TotalSeconds;t++)
         {
             cancel.ThrowIfCancellationRequested();progress?.Report($"Reading video · {Transcripts.Clock(t)}");
-            using var image=await clip.GetThumbnailAsync(TimeSpan.FromSeconds(t),64,36,VideoFramePrecision.NearestFrame);
+            using var image=await composition.GetThumbnailAsync(TimeSpan.FromSeconds(t),64,36,VideoFramePrecision.NearestFrame);
             var decoder=await BitmapDecoder.CreateAsync(image);
             using var bitmap=await decoder.GetSoftwareBitmapAsync(BitmapPixelFormat.Bgra8,BitmapAlphaMode.Ignore);
             var pixels=new byte[64*36*4];bitmap.CopyToBuffer(pixels.AsBuffer());var cells=new byte[64*36];
@@ -34,8 +34,8 @@ internal static class FrameExtractor
     public static async Task<string> CaptureAsync(string folder,double seconds,double? nameTime=null)
     {
         var path="frames/"+Transcripts.Clock(nameTime??seconds).Replace(':','-')+".jpg";var target=Path.Combine(folder,path);if(File.Exists(target))return path;
-        var video=await StorageFile.GetFileFromPathAsync(Path.Combine(folder,"meeting.mp4"));var clip=await MediaClip.CreateFromFileAsync(video);var props=clip.GetVideoEncodingProperties();
-        using var image=await clip.GetThumbnailAsync(TimeSpan.FromSeconds(Math.Clamp(seconds,0,Math.Max(0,clip.OriginalDuration.TotalSeconds-.1))),(int)props.Width,(int)props.Height,VideoFramePrecision.NearestFrame);
+        var video=await StorageFile.GetFileFromPathAsync(Path.Combine(folder,"meeting.mp4"));var clip=await MediaClip.CreateFromFileAsync(video);var props=clip.GetVideoEncodingProperties();var composition=new MediaComposition();composition.Clips.Add(clip);
+        using var image=await composition.GetThumbnailAsync(TimeSpan.FromSeconds(Math.Clamp(seconds,0,Math.Max(0,clip.OriginalDuration.TotalSeconds-.1))),(int)props.Width,(int)props.Height,VideoFramePrecision.NearestFrame);
         var decoder=await BitmapDecoder.CreateAsync(image);using var bitmap=await decoder.GetSoftwareBitmapAsync(BitmapPixelFormat.Bgra8,BitmapAlphaMode.Ignore);
         Directory.CreateDirectory(Path.GetDirectoryName(target)!);var part=target+".partial";File.WriteAllBytes(part,[]);
         try
