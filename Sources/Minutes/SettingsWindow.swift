@@ -284,6 +284,7 @@ final class SettingsModel: ObservableObject {
     struct EngineStatus: Equatable {
         let text: String
         let good: Bool
+        var canSignIn = false
     }
 
     struct ModelRow: Identifiable {
@@ -463,18 +464,36 @@ final class SettingsModel: ObservableObject {
         case .notSignedIn: "Not signed in"
         case .notFound: "Not found"
         }
+        let notSignedIn = EngineStatus(text: "Not signed in", good: false, canSignIn: true)
         let codex = CodexEngine.path() == nil ? EngineStatus(text: "Not found", good: false)
-            : CodexEngine.signedIn() ? EngineStatus(text: "Signed in", good: true) : EngineStatus(text: "Not signed in", good: false)
+            : CodexEngine.signedIn() ? EngineStatus(text: "Signed in", good: true) : notSignedIn
         let agy = AgyEngine.path() == nil ? EngineStatus(text: "Not found", good: false)
-            : AgyEngine.signedIn() ? EngineStatus(text: "Signed in", good: true) : EngineStatus(text: "Not signed in", good: false)
+            : AgyEngine.signedIn() ? EngineStatus(text: "Signed in", good: true) : notSignedIn
         let pulled = models[.ollama]?.count ?? 0
         let ollama = OllamaEngine.path() == nil ? EngineStatus(text: "Not found", good: false)
             : EngineStatus(text: pulled == 0 ? "No models" : pulled == 1 ? "1 model" : "\(pulled) models", good: pulled > 0)
-        engines = [.claude: EngineStatus(text: claudeText, good: claude == .signedIn), .codex: codex, .agy: agy, .ollama: ollama]
+        let claudeStatus = EngineStatus(text: claudeText, good: claude == .signedIn, canSignIn: claude == .notSignedIn)
+        engines = [.claude: claudeStatus, .codex: codex, .agy: agy, .ollama: ollama]
         if let engine = provider.engine, summaryModel.provider != engine || !(models[engine] ?? []).contains(summaryModel) {
             let chosen = SummaryModel.chosen(engine)
             if chosen != summaryModel { summaryModel = chosen }
         }
+    }
+
+    /// Runs the provider's sign-in in Terminal: each CLI signs in through the browser and may ask for a code there.
+    /// The card's status follows when the Settings window comes forward again.
+    static func signIn(_ provider: SummaryModel.Provider) {
+        guard let command = SummaryModel.signInCommand(provider) else { return }
+        let quote = { (text: String) in "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+        // An npm-installed CLI is a `#!/usr/bin/env node` script; node sits beside it, and a .command shell reads no rc file.
+        let bin = URL(fileURLWithPath: command[0]).deletingLastPathComponent().path
+        let script = "#!/bin/zsh\nexport PATH=\(quote(bin)):$PATH\nclear\n\(command.map(quote).joined(separator: " "))\n"
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("Minutes Sign In \(provider.name).command")
+        do {
+            try script.write(to: file, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: file.path)
+        } catch { return }
+        NSWorkspace.shared.open(file)
     }
 
     /// "Signed in" needs the CLI and the account Claude Code keeps in ~/.claude.json after `claude` login.

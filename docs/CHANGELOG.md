@@ -2,6 +2,9 @@
 
 Newest first. One heading per build: `## <version> (<build>) — <date>`. build.sh copies this file into the app; About Minutes reads it.
 
+## 0.7.0 (19) — 2026-11-16
+- Sign In… on a summary provider in Settings that is installed but not signed in: it opens Terminal on that tool's own sign-in (claude auth login, codex login, or agy's Google sign-in), and the card shows Signed in when you come back.
+
 ## 0.6.9 (18) — 2026-11-14
 - Gemini through Antigravity (agy, on your Google sign-in) is a fourth summary provider, with one model per Gemini family.
 

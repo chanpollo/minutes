@@ -475,7 +475,10 @@ private struct SummaryPane: View {
     private func card(_ engine: SummaryModel.Provider, name: String, detail: String) -> some View {
         let status = model.engines[engine]
         let selected = model.provider.engine == engine
-        return ProviderCard(name: name, detail: detail, status: status?.text, good: status?.good ?? false, selected: selected) {
+        return ProviderCard(
+            name: name, detail: detail, status: status?.text, good: status?.good ?? false, selected: selected,
+            signIn: status?.canSignIn == true ? { SettingsModel.signIn(engine) } : nil
+        ) {
             Motion.animate(Motion.settle) { model.provider = Settings.SummaryProvider(engine) }
         }
     }
@@ -578,6 +581,7 @@ private struct ProviderCard: View {
     let status: String?
     let good: Bool
     let selected: Bool
+    var signIn: (() -> Void)? = nil
     let pick: () -> Void
 
     var body: some View {
@@ -591,7 +595,16 @@ private struct ProviderCard: View {
                 Text(detail).font(.system(size: 12)).foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
-            if let status { StatusBadge(text: status, good: good) }
+            if let status {
+                VStack(alignment: .trailing, spacing: 6) {
+                    StatusBadge(text: status, good: good)
+                    if let signIn {
+                        Button("Sign In…", action: signIn)
+                            .controlSize(.small)
+                            .help("Opens Terminal to sign in")
+                    }
+                }
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
@@ -606,6 +619,7 @@ private struct ProviderCard: View {
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
         .accessibilityAction { pick() }
+        .accessibilityActions { if let signIn { Button("Sign In", action: signIn) } }
     }
 }
 

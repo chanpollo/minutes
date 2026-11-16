@@ -112,6 +112,16 @@ struct SummaryModel: Hashable {
 
     var unavailable: String? { Self.unavailable(provider) }
 
+    /// The CLI's own sign-in; agy has no login command and signs in with Google the first time it runs.
+    static func signInCommand(_ provider: Provider) -> [String]? {
+        switch provider {
+        case .claude: Summarizer.claudePath().map { [$0, "auth", "login"] }
+        case .codex: CodexEngine.path().map { [$0, "login"] }
+        case .agy: AgyEngine.path().map { [$0] }
+        case .ollama: nil
+        }
+    }
+
     var timeout: TimeInterval {
         switch provider {
         case .claude: 300
