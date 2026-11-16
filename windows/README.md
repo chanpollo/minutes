@@ -1,6 +1,6 @@
 # Minutes for Windows
 
-.NET 8 / WinUI 3 port of macOS 0.7.0. **Incomplete preview; full feature parity is not yet achieved.** See [PARITY.md](docs/PARITY.md) for implemented and missing behavior, and [TESTING.md](docs/TESTING.md) before trying the unsigned app.
+.NET 8 / WinUI 3 port of macOS 0.7.0. Windows version: **1.0.0**. Full feature parity is not yet achieved. See [PARITY.md](docs/PARITY.md) for implemented and missing behavior, and [TESTING.md](docs/TESTING.md) before trying the unsigned app.
 
 ## Portable tests (macOS, Linux, Windows)
 

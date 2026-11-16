@@ -527,7 +527,7 @@ public sealed partial class MainWindow : Window
         var uploadMedia = Toggle("Sync recording media", settings.DriveUploadMedia);
         var perGroup = Toggle("Keep a sync folder per group", settings.SyncFolderPerGroup);
         var startup = new CheckBox { Content = "Open at login", IsChecked = DesktopIntegration.IsStartupEnabled }; panel.Children.Add(startup);
-        var report = BuildInfo.Report(); var about = new TextBlock { Text = report + "\n\n" + string.Join("\n\n", Changelog.Parse(Read(AppContext.BaseDirectory, "CHANGELOG.md")).Select(r => $"{r.Version}{(r.Version == "0.7.0" ? " · Current version" : "")} · {r.DateText}\n" + string.Join("\n", r.Items.Select(i => "• " + i)))), TextWrapping = TextWrapping.Wrap }; panel.Children.Add(about);
+        var report = BuildInfo.Report(); var about = new TextBlock { Text = report + "\n\n" + string.Join("\n\n", Changelog.Parse(Read(AppContext.BaseDirectory, "CHANGELOG.md")).Select(r => $"{r.Version}{(r.Version == "1.0.0" ? " · Current version" : "")} · {r.DateText}\n" + string.Join("\n", r.Items.Select(i => "• " + i)))), TextWrapping = TextWrapping.Wrap }; panel.Children.Add(about);
         var copyReport = new Button { Content = "Copy bug report details" }; copyReport.Click += (_, _) => { var data = new Windows.ApplicationModel.DataTransfer.DataPackage(); data.SetText(report); Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(data); }; panel.Children.Add(copyReport);
         var dialog = new ContentDialog { Title = "Settings", Content = new ScrollViewer { Content = panel }, PrimaryButtonText = "Save", CloseButtonText = "Cancel", XamlRoot = Content.XamlRoot };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
