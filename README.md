@@ -321,3 +321,7 @@ As of 3 Nov 2026.
 | Meetings booked over each other: the summary picks the event that was held; Other meetings at this time | Built; event order, the Event line, renames and the cases that must not rename tested headless (3,035). Real `claude -p` on the 30 Oct 17:15 recording (titled after the STM event, talk about the AI meeting) chose the AI meeting 3 times out of 3; with the right event first it kept it, and a synthetic case likewise. The menu is not yet clicked in the app |
 
 Plans and open points are in [docs/PLAN.md](docs/PLAN.md).
+
+## Windows
+
+The Windows port is under [`windows/`](windows/README.md). See its [parity record](windows/docs/PARITY.md) and [Windows PC validation guide](windows/docs/TESTING.md) for current coverage.

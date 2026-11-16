@@ -1,0 +1,50 @@
+name: Windows
+on:
+  push:
+    branches: [feature/windows-app]
+  pull_request:
+    branches: [main]
+    paths: ['windows/**', '.github/workflows/windows.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Restore core tests
+        run: dotnet restore windows/Minutes.Core.Tests/Minutes.Core.Tests.csproj
+      - name: Test portable logic
+        run: dotnet test windows/Minutes.Core.Tests/Minutes.Core.Tests.csproj --no-restore -c Release --logger "trx;LogFileName=core.trx" --results-directory windows/artifacts/tests
+      - name: Restore Windows app
+        run: dotnet restore windows/Minutes.App/Minutes.App.csproj -p:Platform=x64
+      - name: Build Windows app
+        run: dotnet build windows/Minutes.App/Minutes.App.csproj --no-restore -c Release -p:Platform=x64
+      - name: Publish unsigned portable app
+        run: dotnet publish windows/Minutes.App/Minutes.App.csproj --no-restore --no-build -c Release -p:Platform=x64 -o windows/artifacts/Minutes
+      - name: Bundle local speech engines
+        shell: pwsh
+        run: ./windows/scripts/Bundle-Tools.ps1 -Destination windows/artifacts/Minutes
+      - name: Include validation guide
+        shell: pwsh
+        run: Copy-Item windows/docs/TESTING.md windows/artifacts/Minutes/TESTING.md
+      - name: Archive
+        shell: pwsh
+        run: Compress-Archive windows/artifacts/Minutes/* windows/artifacts/Minutes-0.7.0-win-x64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Minutes-0.7.0-win-x64-unsigned
+          path: windows/artifacts/Minutes-0.7.0-win-x64.zip
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Windows-test-results
+          path: windows/artifacts/tests

@@ -1,0 +1,62 @@
+# Windows parity with Minutes 0.7.0
+
+Baseline: main `7dd649b` (0.7.0). This is a work in progress, **not a full-parity release**. A CI build proves compilation and portable tests; it cannot prove audio, capture, sign-in or UI behavior. No feature has been exercised on a real Windows PC yet.
+
+State vocabulary: **built** = implementation exists; **CI tested** = exercised by automated tests; **PC required** = Windows hardware/integration verification outstanding; **pending** = implementation incomplete or absent. A row can have more than one state.
+
+| Mac feature / source | Windows approach | State |
+|---|---|---|
+| Workspace, ISO-8601 meta, groups, modes and legacy call/inPerson (`Workspace`, `RecordModes`) | Portable .NET core; preserve unknown meta fields, Drive/sync/briefing objects | Built; local tests; CI pending |
+| Folder names, collision suffixes, retitle only original headers | Same date/title layout; Windows-invalid characters also replaced; trailing dots removed | Built; local tests; CI pending |
+| New Note, write notes.md, record into open note without changing identity | WinUI plain text Markdown editor, notes-first storage | Built; PC required; rich text parity pending |
+| Search titles, transcripts, notes, comments | In-memory, case-insensitive | Built; PC required |
+| Pin, archive, groups | Native controls, JSON metadata | Built; PC required; drag/reorder, group assignment, swipe, delete/undo pending |
+| Screen / Voice entry points, app defaults | Voice entry, explicit warning when Screen unavailable | Voice built; Screen and per-app defaults pending |
+| Window video, newest 320×200 window or display (`ScreenRecorder`, `Muxer`) | Planned Windows.Graphics.Capture → Media Foundation H.264 → mixed AAC meeting.mp4 | Pending |
+| Mic + call track, common clock, mute (`Recording`, `AudioTracks`) | NAudio WASAPI mic and whole-system loopback, clock padding, 16 kHz mono PCM | Fallback built; PC required; process loopback and loudspeaker-only AEC pending |
+| Process loopback | ActivateAudioInterfaceAsync PROCESS_LOOPBACK, process tree inclusion | Pending; requires build 20348+, unlike the proposed 19041/2004 minimum. Older PCs need whole-system fallback |
+| Meeting app allow list, remembered apps, Always Record (`MeetingApps`, `MicMonitor`) | Planned capture/render audio-session and process enumeration | Pending |
+| Record? / Stop? cards, 2 polls, 3 s prompt, 30 s stop, Keep Recording, Same/New Meeting (`MeetingDetector`) | Portable state machine plus WinUI dialogs | Pending |
+| Local speech models (`ModelStore`) | Same four URLs, byte sizes, archive/member SHA-256; LocalAppData/Minutes/models; atomic install | Built; PC download required; resume pending |
+| whisper.cpp bundled CLI | Build pinned whisper.cpp on Windows CI, ship exe and DLLs in tools/ | Pending CI integration |
+| sherpa-onnx CLI and 0.65 threshold | Bundle Windows x64 binary; same CLI args; nearest-segment absorption | Post-processing built/tested locally; binary bundling pending |
+| Language th/en/auto, Thai UTF-8 token reconstruction (`Transcriber`) | Pure C# parser; punctuation, pause, voice edges, Thai joins and global labels | Built; local tests; CI pending |
+| Repetition, fillers p<0.5, two-minute recurrence, trigram dedupe (`TranscriptCleaner`) | Pure C# rules and thresholds | Built; local tests; CI pending |
+| Second whisper pass (-mc 0), measured-leak gate, FLAC sample-exact verification | Port remaining AudioTracks / transcription orchestration | Pending; first pass and dedupe built |
+| Rename speakers in transcript | Preserve turn structure and reanchor comments | Pending UI |
+| Summary Claude, Codex, agy, Ollama (`SummaryEngines`, `Summarizer`) | Same arguments, timeouts, prompts; CLI process stdin; isolated working directory | Built; PC provider verification required; npm shim resolution pending |
+| Summary Off / confidential explicit send / auto summary | Service guards; explicit send dialog; settings stored locally | Built; local prompt tests; PC required |
+| Summary languages, event choice and known picture filtering | Pure C# prompt composition and post-processing | Built; local tests; automatic calendar re-selection orchestration pending |
+| Own Ollama process | Only 127.0.0.1:21434; never start or use 11434 (explicit owner requirement overrides Mac reuse) | Built; PC required |
+| Sign In… (`SettingsModel.signIn`) | Windows Terminal or cmd: claude auth login / codex login / agy | Built; PC required |
+| Model discovery, auth checks, provider menus | Read provider caches / agy models / Ollama manifests | Pending |
+| Calendar title, invitees, overlap, external confidentiality (`CalendarTitle`) | Practical initial plan: classic Outlook COM, no app registration; Microsoft 365 Graph for new Outlook needs user-supplied app id/consent | Ranking built/tested locally; COM / Graph adapters pending |
+| Frames, stillness grid, OCR th/en, Capture (`Frames`) | Windows.Media.Ocr; same frames/ JSON and JPEG names; brightness-grid selection in core | Frame link filtering built; extraction/OCR pending |
+| Notes formatting, attachments, Markdown roundtrip (`NotesMarkdown`, `NotesPictures`) | Plain Markdown saved unchanged; planned rich editor mapping | Plain editor built; formatting, clipboard/drop attachments pending |
+| Comments quote/context/time anchors (`Comments`) | Same JSON records; UTF-16 context matcher and bracket fallback | Core and basic comments/reply/resolve UI built; local tests; exact markdown grouping, legacy reply migration pending |
+| Comment AI threads, revisions / hash-gated undo (`CommentRevision`) | Guarded literal single edits, immutable title and turns, revisions/<reply>-<file>, SHA-256 ignoring title | Core built/tested locally; AI thread UI and migration pending |
+| Export | Markdown save picker | Built; PC required; full Mac export layout parity pending |
+| Audio briefing (`Briefing`, `BriefingPlayer`) | Windows.Media.SpeechSynthesis plays existing briefing.md | Playback built; PC required; script generation, saved AAC/marks/voice selection/local Thai wording pending |
+| Sync Off / folder (`Sync`, `FolderSync`) | Same selected text/media/pictures; hidden partial then rename; timestamps; confidential withdrawal | Built; local tests; PC required; six-hour timer wired; previous base and concurrent privacy hardening pending |
+| Google Drive signed-in (`DriveSync`) | User-supplied OAuth client, PKCE loopback, drive.file, resumable upload, DPAPI/Credential Locker | Pending; no bundled credentials |
+| Cloud folder discovery | OneDrive environment/registry, Dropbox info.json, DriveFS mounts | Manual folder built; automatic discovery pending |
+| Retention launch/every 6h, 90-day video, audio only after transcript (`Housekeeping`) | Portable retention plan, Windows deletion and lossless compression | Pending |
+| Menu bar / Dock / hotkey / startup | Shell_NotifyIcon, Ctrl+Alt+R RegisterHotKey, notification menu; unpackaged startup via HKCU Run | Built; PC required; animated recording/levels/menu parity pending |
+| About version, build, changelog (`AppVersion`, `Changelog`) | Version 0.7.0, bundled changelog parser | Parser built/tested; build/install dates and copy report pending |
+| UI defaults / Reduce Motion / audio exclusivity | WinUI Fluent defaults; system controls; stop playback before recording | Basic shell built; PC accessibility/motion and complete playback arbitration pending |
+| --transcribe / --summarize only specified folder (`main`) | CLI entry dispatch before UI startup | Pending |
+| Recovery after crash / retry model jobs | LocalAppData staging retained | Pending recovery UI |
+
+## Platform decisions
+
+- Keep the WinUI app unpackaged and self-contained in an unsigned ZIP for CI review. This needs no signing certificate and changes no machine-wide install state. StartupTask needs package identity; the preview uses an HKCU Run entry, removed by disabling Open at login. A future MSIX should use StartupTask.
+- Use H.264 on Windows as requested, versus Mac HEVC. Encoding/capture remains unimplemented; the UI explicitly asks before audio-only recording.
+- Classic Outlook COM is the simplest calendar adapter without a hosted service or developer credentials. New Outlook does not expose classic Outlook COM; Graph support must be explicit, user-configured, and cannot silently reuse unrelated tokens.
+- Windows cannot create some names accepted on APFS. Replace `< > " | ? *` in addition to Mac's forbidden delimiters, trim trailing dots. Existing Mac folders with such names cannot be represented by the Windows filesystem; do not silently rewrite a synced source.
+- A folder-sync export intentionally excludes meta.json and briefing.m4a, exactly as Mac `Sync.fileNames`. To share an editable workspace, point both apps at the **workspace itself**; the Minutes folder-sync export is a document export, not a second editable workspace.
+
+## Evidence
+
+- Base contains no Windows project or .NET tests.
+- Local SDK 8.0.428 installed into a user directory after Homebrew's cask installer failed at sudo.
+- Initial portable gate: 59/59 passed on macOS. Windows CI and real-PC evidence must be added separately.
