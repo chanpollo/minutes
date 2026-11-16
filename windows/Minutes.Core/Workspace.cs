@@ -50,7 +50,8 @@ public static class Modes
 public record MeetingGroup(string Id, string Name);
 public record Meeting(string Folder, MeetingMeta Meta)
 {
-    public override string ToString() => $"{(Meta.PinnedAt != null ? "📌 " : "")}{Meta.Title}";
+    public string? Activity { get; init; }
+    public override string ToString() => $"{(Meta.PinnedAt != null ? "[Pinned] " : "")}{Meta.Title}"+(Activity==null?"":" · "+Activity);
 }
 
 public static class JsonFiles
