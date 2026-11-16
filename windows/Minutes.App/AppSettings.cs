@@ -1,0 +1,32 @@
+using Minutes.Core;
+using System.Globalization;
+
+namespace Minutes.App;
+public sealed class AppSettings
+{
+    public static string Support => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Minutes");
+    private static string FileName => Path.Combine(Support,"settings.json");
+    public string WorkspacePath { get; set; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),"Meetings");
+    public string RecordMode { get; set; } = "screen";
+    public string SpeechLanguage { get; set; } = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName=="th"?"th":"auto";
+    public string SummaryProvider { get; set; } = "claude";
+    public string SummaryModel { get; set; } = "sonnet";
+    public string SummaryLanguage { get; set; } = "thai";
+    public bool AutoSummarise { get; set; }
+    public bool SeparateSpeakers { get; set; } = true;
+    public bool CompressAudio { get; set; } = true;
+    public bool TitleFromCalendar { get; set; } = true;
+    public bool ConfidentialExternal { get; set; } = true;
+    public int KeepVideoDays { get; set; } = 90;
+    public int KeepAudioDays { get; set; }
+    public bool DeleteOnDrive { get; set; }
+    public string SyncMode { get; set; } = "off";
+    public string? SyncFolder { get; set; }
+    public bool DriveUploadText { get; set; } = true;
+    public bool DriveUploadMedia { get; set; } = true;
+    public bool SyncFolderPerGroup { get; set; } = true;
+    public Dictionary<string,string> ToolPaths { get; set; } = [];
+    public static AppSettings Load(){try{return JsonFiles.Read<AppSettings>(FileName)??new();}catch(Exception e)when(e is IOException or System.Text.Json.JsonException){return new();}}
+    public void Save()=>JsonFiles.Write(FileName,this);
+    public string? FindTool(string name)=>ToolProcess.Find(name,ToolPaths.GetValueOrDefault(name));
+}
