@@ -1,6 +1,6 @@
 # Windows parity with Minutes 0.7.0
 
-Baseline: main `7dd649b` (0.7.0). This is a work in progress, **not a full-parity release**. A CI build proves compilation and portable tests; it cannot prove audio, capture, sign-in or UI behavior. No feature has been exercised on a real Windows PC yet.
+Windows release version: **1.0.0** (owner-selected). Mac behavior baseline: main `7dd649b` (0.7.0). This is a work in progress, **not a full-parity release**. A CI build proves compilation and portable tests; it cannot prove audio, capture, sign-in or UI behavior. No feature has been exercised on a real Windows PC yet.
 
 State vocabulary: **built** = implementation exists; **CI tested** = exercised by automated tests; **PC required** = Windows hardware/integration verification outstanding; **pending** = implementation incomplete or absent. A row can have more than one state.
 
@@ -42,7 +42,7 @@ State vocabulary: **built** = implementation exists; **CI tested** = exercised b
 | Cloud folder discovery | OneDrive environment/registry, Dropbox info.json, DriveFS mounts | Manual folder built; automatic discovery pending |
 | Retention launch/every 6h, 90-day video, audio only after transcript (`Housekeeping`) | Portable retention plan and deletion | Built; retention tests local; timer wired; verified lossless compression built; synced retention deletion pending |
 | Menu bar / Dock / hotkey / startup | Shell_NotifyIcon, Ctrl+Alt+R RegisterHotKey, notification menu; unpackaged startup via HKCU Run | Built; PC required; animated recording/levels/menu parity pending |
-| About version, build, changelog (`AppVersion`, `Changelog`) | Version 0.7.0, bundled changelog parser | Parser tested; CI build/commit/time, first-opened time, changelog and copy report built; PC required |
+| About version, build, changelog (`AppVersion`, `Changelog`) | Independent Windows version in windows/VERSION, bundled changelog parser | Parser tested; CI build/commit/time, first-opened time, changelog and copy report built; PC required |
 | UI defaults / Reduce Motion / audio exclusivity | WinUI Fluent defaults; system controls; stop playback before recording | Basic shell and mixed Me/Others voice playback cache built; PC accessibility/motion and complete playback arbitration pending |
 | --transcribe / --summarize only specified folder (`main`) | CLI dispatch before window creation; operates only on the given folder | Built and compiled on CI; Windows CLI verification required |
 | Recovery after crash / retry model jobs | Repair interrupted WAV headers, recover staging, preserve recorded-note identity, retry missing-model jobs | Built; normal UI is single-instance while CLI jobs remain independent; fault-injection PC verification required |
@@ -74,7 +74,7 @@ Full parity is **not complete**. These are implementation gaps, not merely unrun
 - Complete Thai/English local briefing expansion and speaking-rate/playback/preview controls. Speech synthesis currently renders sentences separately for reliable saved marks; voice prosody differs from one Mac utterance.
 - Screen re-encoding at final mux, odd-dimension scaling and dynamic resizing need finishing/validation. x64 is the only bundled architecture; ARM64 packaging is not implemented.
 
-The first editable preview is reviewable in the draft PR. Do not promote this to a complete Windows 0.7.0 release until these gates and TESTING.md are closed.
+The first editable preview is reviewable in the draft PR. Do not promote this to a full-parity Windows release until these gates and TESTING.md are closed.
 
 ## Reproducing the cross-platform boundary check
 

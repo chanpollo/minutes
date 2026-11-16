@@ -6,7 +6,7 @@ internal static class BuildInfo
 {
     public static string Report()
     {
-        var version = "0.7.0"; var build = "local"; var commit = "local"; var built = "local build";
+        var version = "1.0.0"; var build = "local"; var commit = "local"; var built = "local build";
         var file = Path.Combine(AppContext.BaseDirectory, "build.json");
         if (File.Exists(file))
         {
