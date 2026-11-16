@@ -18,13 +18,14 @@ Only Minutes.Core and its tests are platform independent. Do not build the WinUI
 Install .NET 8 SDK and Visual Studio 2022's Windows application development workload with Windows 10/11 SDK. Then:
 
 ```powershell
-dotnet restore windows/Minutes.App/Minutes.App.csproj -p:Platform=x64
-dotnet build windows/Minutes.App/Minutes.App.csproj -c Release -p:Platform=x64
-dotnet publish windows/Minutes.App/Minutes.App.csproj -c Release -p:Platform=x64 -o windows/artifacts/Minutes
+cd windows
+msbuild Minutes.App/Minutes.App.csproj -t:Restore -p:Platform=x64 -p:Configuration=Release
+msbuild Minutes.App/Minutes.App.csproj -t:Build -p:Platform=x64 -p:Configuration=Release
+msbuild Minutes.App/Minutes.App.csproj -t:Publish -p:Platform=x64 -p:Configuration=Release -p:PublishDir=../artifacts/Minutes/
 ```
 
-GitHub Actions runs portable tests, compiles WinUI and publishes an unsigned self-contained x64 ZIP. There is no signing, tag, release or main-branch push. Run the full extracted folder. Models are not bundled: Download Speech Models in Settings installs the Mac model URLs and hashes under `%LOCALAPPDATA%\Minutes\models`.
+GitHub Actions runs portable tests, compiles WinUI and publishes an unsigned self-contained x64 ZIP. There is no signing, tag, release or main-branch push. Run the full extracted folder. Models are not bundled: first launch downloads them, and Download Speech Models in Settings retries installation of the Mac model URLs and hashes under `%LOCALAPPDATA%\Minutes\models`.
 
-A Voice recording currently uses the default microphone and **all system audio**. Screen capture, process-scoped audio and automatic meeting detection are pending. The app explicitly asks before substituting Voice for the Screen preference. Do not use this preview for confidential or important meetings until real-PC validation and the open privacy/recovery gates are complete.
+Voice records the microphone and process-scoped call audio when a detected app is available, with whole-system audio as fallback. Screen adds WGC H.264 video, finalized with mixed AAC audio. The tray offers both modes and the Record? card remembers a mode per app. These paths compile on Windows CI but have not been exercised on a real PC. Full parity remains incomplete: see the explicit implementation gates in PARITY.md, including WYSIWYG notes, AEC fallback for devices without a driver AEC effect and remaining sidebar/menu behavior. Recording can run while earlier meetings wait for serialized processing; that concurrency still needs real-PC validation.
 
 The editable workspace format matches the Mac (meta.json, transcript.md, summary.md, notes.md, comments, revisions, attachments, frames, briefing). A folder-sync export is deliberately a document export and excludes meta.json, just as the Mac does. Share an editable workspace by selecting the same synced workspace folder on both platforms.
