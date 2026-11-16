@@ -71,6 +71,7 @@ public sealed class TranscriptionService(AppSettings settings)
             var labels=Transcripts.Labels(heard.Select(h=>(h.Track,h.Line.Voice)).ToArray(),names);
             var rendered=Transcripts.Render(heard.Select((h,i)=>new NamedLine(h.Line.Start,labels[i],h.Line.Text)).ToArray(),meta.Title,meta.StartedAt,duration);
             JsonFiles.AtomicWrite(Path.Combine(folder,"transcript.md"),rendered);var current=Workspace.ReadMeta(folder)??meta;current.TranscriptError=null;Workspace.WriteMeta(folder,current);
+            if(File.Exists(Path.Combine(folder,"comments.json")))CommentFiles.Save(folder,CommentFiles.Read(folder),current.Title);
             if(settings.CompressAudio)await AudioCompression.CompressAsync(folder,cancel);
         }
         catch(Exception e)when(e is not OperationCanceledException){var current=Workspace.ReadMeta(folder)??meta;current.TranscriptError=e.Message;Workspace.WriteMeta(folder,current);throw;}

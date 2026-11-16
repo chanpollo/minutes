@@ -10,6 +10,7 @@ public sealed class AppSettings
     public string RecordMode { get; set; } = "screen";
     public string SpeechLanguage { get; set; } = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName=="th"?"th":"auto";
     public string SummaryProvider { get; set; } = "claude";
+    public Dictionary<string,string> ProviderModels { get; set; } = [];
     public string SummaryModel { get; set; } = "sonnet";
     public string BriefingMode { get; set; } = "request";
     public string? BriefingVoiceThai { get; set; }
@@ -21,6 +22,7 @@ public sealed class AppSettings
     public HashSet<string> MeetingAppsOn { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public HashSet<string> AlwaysRecord { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public int AutoStopSeconds { get; set; } = 30;
+    public bool SummaryPictures { get; set; } = true;
     public bool AutoSummarise { get; set; }
     public bool SeparateSpeakers { get; set; } = true;
     public bool CompressAudio { get; set; } = true;

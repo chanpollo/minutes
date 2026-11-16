@@ -131,6 +131,7 @@ public sealed class Workspace(string root)
                 var p = Path.Combine(folder, file);
                 if (File.Exists(p) && Retitled(File.ReadAllText(p), old, meta.Title) is { } text) JsonFiles.AtomicWrite(p, text);
             }
+            if(File.Exists(Path.Combine(folder,"comments.json")))CommentFiles.Save(folder,CommentFiles.Read(folder),meta.Title);
             return new(folder, meta);
         }
     }

@@ -36,6 +36,7 @@ public sealed partial class MainWindow : Window
         workspace=new(settings.WorkspacePath);summaries=new(AppSettings.Support,settings.FindTool);
         desktop=new(this,()=>Activate(),()=>{if(recorder.IsRecording)Stop_Click(this,new RoutedEventArgs());else Record_Click(this,new RoutedEventArgs());},()=>Stop_Click(this,new RoutedEventArgs()),()=>NewNote_Click(this,new RoutedEventArgs()),()=>Settings_Click(this,new RoutedEventArgs()),()=>!recorder.IsRecording&&jobs.CurrentCount==1);
         Closed+=(_,_)=>{desktop.Dispose();recorder.Dispose();summaries.Dispose();googleHttp.Dispose();maintenance.Stop();micPoll.Stop();Player.MediaPlayer?.Dispose();};
+        var newNoteKey=new Microsoft.UI.Xaml.Input.KeyboardAccelerator{Key=Windows.System.VirtualKey.N,Modifiers=Windows.System.VirtualKeyModifiers.Control};newNoteKey.Invoked+=(_,e)=>{NewNote_Click(this,new());e.Handled=true;};((FrameworkElement)Content).KeyboardAccelerators.Add(newNoteKey);
         Refresh();Status.Message="Waiting for a meeting";
         ((FrameworkElement)Content).Loaded+=async(_,_)=>await StartupAsync();
         maintenance.Tick+=async(_,_)=>await RunJob(async()=>{await CleanupAsync();await SyncAllAsync();},"Maintenance complete");maintenance.Start();micPoll.Tick+=async(_,_)=>await PollCallsAsync();micPoll.Start();
@@ -145,6 +146,45 @@ public sealed partial class MainWindow : Window
     {if(selected==null)return;await RunJob(()=>{var m=workspace.Update(selected.Folder,m=>{m.PinnedAt=m.PinnedAt==null?DateTimeOffset.Now:null;if(m.PinnedAt!=null)m.ArchivedAt=null;});Show(new(selected.Folder,m));return Task.CompletedTask;},"Pin updated");}
     private async void Archive_Click(object sender,RoutedEventArgs e)
     {if(selected==null)return;await RunJob(()=>{var m=workspace.Update(selected.Folder,m=>{m.ArchivedAt=m.ArchivedAt==null?DateTimeOffset.Now:null;m.PinnedAt=null;});Show(new(selected.Folder,m));return Task.CompletedTask;},"Archive updated");}
+    private (string Source,string Stashed,MeetingMeta Meta)? deleted;
+    private async void Delete_Click(object sender,RoutedEventArgs e)
+    {
+        if(selected==null||recorder.IsRecording)return;var meeting=selected;
+        if(!await Confirm("Delete this meeting?",meeting.Meta.Title+" will move to the local recovery folder. Undo can restore it.","Delete"))return;
+        await RunJob(()=>
+        {
+            Player.MediaPlayer?.Pause();var stash=Path.Combine(workspace.Root,".trash",Guid.NewGuid().ToString("N"));Directory.CreateDirectory(Path.GetDirectoryName(stash)!);Directory.Move(meeting.Folder,stash);deleted=(meeting.Folder,stash,meeting.Meta);selected=null;MeetingTitle.Text=Summary.Text=Transcript.Text=Notes.Text="";return Task.CompletedTask;
+        },"Meeting deleted · Undo is available");
+    }
+    private async void UndoDelete_Click(object sender,RoutedEventArgs e)
+    {
+        if(deleted is not {} entry)return;
+        await RunJob(()=>{var target=Directory.Exists(entry.Source)?Workspace.UniquePath(workspace.Root,Path.GetFileName(entry.Source)):entry.Source;Directory.Move(entry.Stashed,target);deleted=null;Show(new(target,entry.Meta));return Task.CompletedTask;},"Meeting restored");
+    }
+    private async void MoveGroup_Click(object sender,RoutedEventArgs e)
+    {
+        if(selected==null)return;var meeting=selected;var groups=new[]{new MeetingGroup("","No group")}.Concat(workspace.Groups()).ToArray();var picker=new ComboBox{ItemsSource=groups,DisplayMemberPath="Name",SelectedItem=groups.FirstOrDefault(g=>g.Id==meeting.Meta.GroupID)??groups[0],MinWidth=300};
+        var dialog=new ContentDialog{Title="Move to group",Content=picker,PrimaryButtonText="Move",CloseButtonText="Cancel",XamlRoot=Content.XamlRoot};if(await dialog.ShowAsync()!=ContentDialogResult.Primary)return;
+        await RunJob(async()=>{var meta=workspace.Update(meeting.Folder,m=>m.GroupID=(picker.SelectedItem as MeetingGroup)?.Id is {Length:>0} id?id:null);Show(new(meeting.Folder,meta));await SyncMeetingAsync(selected!);},"Group updated");
+    }
+    private async void RenameSpeaker_Click(object sender,RoutedEventArgs e)
+    {
+        if(selected==null)return;var meeting=selected;var transcript=Read(meeting.Folder,"transcript.md");var labels=Transcripts.Parse(transcript).Select(t=>t.Speaker).Distinct().ToArray();if(labels.Length==0)return;
+        var picker=new ComboBox{ItemsSource=labels,SelectedIndex=0};var name=new TextBox{Header="Name"};var panel=new StackPanel{Spacing=12};panel.Children.Add(picker);panel.Children.Add(name);
+        var dialog=new ContentDialog{Title="Rename speaker",Content=panel,PrimaryButtonText="Rename",CloseButtonText="Cancel",XamlRoot=Content.XamlRoot};if(await dialog.ShowAsync()!=ContentDialogResult.Primary||string.IsNullOrWhiteSpace(name.Text))return;
+        await RunJob(()=>{var old=picker.SelectedItem!.ToString()!;var changed=Transcripts.RenameSpeaker(transcript,old,name.Text);JsonFiles.AtomicWrite(Path.Combine(meeting.Folder,"transcript.md"),changed);Show(meeting);return Task.CompletedTask;},"Speaker renamed");
+    }
+    private void WrapNote(string before,string after)
+    {var start=Notes.SelectionStart;var selection=Notes.SelectedText;Notes.SelectedText=before+selection+after;Notes.Select(start+before.Length,selection.Length);Notes.Focus(FocusState.Programmatic);}
+    private void Bold_Click(object sender,RoutedEventArgs e)=>WrapNote("**","**");
+    private void Italic_Click(object sender,RoutedEventArgs e)=>WrapNote("*","*");
+    private void Underline_Click(object sender,RoutedEventArgs e)=>WrapNote("<u>","</u>");
+    private void Checklist_Click(object sender,RoutedEventArgs e)=>WrapNote("- [ ] ","");
+    private async void Picture_Click(object sender,RoutedEventArgs e)
+    {
+        if(selected==null)return;var meeting=selected;var picker=new FileOpenPicker();foreach(var ext in new[]{".png",".jpg",".jpeg",".gif"})picker.FileTypeFilter.Add(ext);WinRT.Interop.InitializeWithWindow.Initialize(picker,WinRT.Interop.WindowNative.GetWindowHandle(this));var file=await picker.PickSingleFileAsync();if(file==null)return;
+        await RunJob(()=>{var root=Path.Combine(meeting.Folder,"attachments");Directory.CreateDirectory(root);var name=Path.GetFileName(file.Path);var target=Path.Combine(root,name);for(var n=2;File.Exists(target);n++)target=Path.Combine(root,Path.GetFileNameWithoutExtension(name)+" "+n+Path.GetExtension(name));File.Copy(file.Path,target);WrapNote("\n"+Attachments.Line(Path.GetFileName(target))+"\n","");return Task.CompletedTask;},"Picture added");
+    }
     private async void Record_Click(object sender,RoutedEventArgs e)
     {
         if(recorder.IsRecording)return;
@@ -194,7 +234,7 @@ public sealed partial class MainWindow : Window
             else{target=Workspace.UniquePath(workspace.Root,Workspace.FolderName(meta.Title,meta.StartedAt));Directory.Move(staged,target);}
             recordingFolder=null;RecordButton.IsEnabled=true;StopButton.IsEnabled=MuteButton.IsEnabled=false;MuteButton.IsChecked=false;Show(new(target,meta));
             Status.Message="Transcribing…";await new TranscriptionService(settings).TranscribeAsync(target,new Progress<string>(s=>Status.Message=s));
-            if(settings.AutoSummarise&&meta.Confidential!=true&&settings.SummaryProvider!="off")await summaries.SummarizeAsync(target,CurrentModel(),settings.SummaryLanguage);
+            if(settings.AutoSummarise&&meta.Confidential!=true&&settings.SummaryProvider!="off"){await SummarizeMeetingAsync(target);target=workspace.Find(meta.Id)?.Folder??target;if(settings.BriefingMode=="after")await new BriefingService(settings,summaries).MakeAsync(target,false);}
             await SyncMeetingAsync(new(target,Workspace.ReadMeta(target)!));Show(new(target,Workspace.ReadMeta(target)!));if(videoFailure!=null)throw new IOException("Transcript ready, but video was not recorded: "+videoFailure);
         },"Transcript ready");
     }
@@ -204,11 +244,18 @@ public sealed partial class MainWindow : Window
     {
         if(selected==null)return;var meeting=selected;await RunJob(async()=>{await new TranscriptionService(settings).TranscribeAsync(meeting.Folder,new Progress<string>(s=>Status.Message=s));Show(new(meeting.Folder,Workspace.ReadMeta(meeting.Folder)!));},"Transcript ready");
     }
+    private async Task<string> SummarizeMeetingAsync(string folder,bool force=false)
+    {
+        var meta=Workspace.ReadMeta(folder)??throw new IOException("Meeting metadata missing");
+        if(settings.SummaryPictures&&File.Exists(Path.Combine(folder,"meeting.mp4"))&&!File.Exists(Path.Combine(folder,"frames","frames.json")))await FrameExtractor.ExtractAsync(folder,new Progress<string>(s=>Status.Message=s));
+        var calendar=settings.TitleFromCalendar?OutlookCalendar.Current(meta.BundleID,meta.RecordMode=="voice",meta.StartedAt):[];
+        return await summaries.SummarizeAsync(folder,CurrentModel(),settings.SummaryLanguage,settings.SummaryProvider=="off",force,workspace:workspace,calendar:calendar,confidentialExternal:settings.ConfidentialExternal);
+    }
     private async void Summarise_Click(object sender,RoutedEventArgs e)
     {
         if(selected==null)return;var meeting=selected;var force=false;
         if(meeting.Meta.Confidential==true){force=await Confirm("Send this confidential meeting?","The transcript and frame text will be sent to the selected summary provider for this request.","Send for summary");if(!force)return;}
-        await RunJob(async()=>{Status.Message="Summarising…";if(File.Exists(Path.Combine(meeting.Folder,"meeting.mp4"))&&!File.Exists(Path.Combine(meeting.Folder,"frames","frames.json")))await FrameExtractor.ExtractAsync(meeting.Folder,new Progress<string>(s=>Status.Message=s));await summaries.SummarizeAsync(meeting.Folder,CurrentModel(),settings.SummaryLanguage,settings.SummaryProvider=="off",force);Show(new(meeting.Folder,Workspace.ReadMeta(meeting.Folder)!));await SyncMeetingAsync(selected!);},"Summary ready");
+        await RunJob(async()=>{Status.Message="Summarising…";var summary=await SummarizeMeetingAsync(meeting.Folder,force);meeting=workspace.Find(meeting.Meta.Id)??meeting;Show(new(meeting.Folder,Workspace.ReadMeta(meeting.Folder)!));if(settings.BriefingMode=="after")await new BriefingService(settings,summaries).MakeAsync(meeting.Folder,false);await SyncMeetingAsync(selected!);},"Summary ready");
     }
     private async void Comment_Click(object sender,RoutedEventArgs e)
     {
@@ -335,12 +382,34 @@ public sealed partial class MainWindow : Window
         ComboBox Choice(string header,string[] values,string value){var box=new ComboBox{Header=header,ItemsSource=values,SelectedItem=value,HorizontalAlignment=HorizontalAlignment.Stretch};panel.Children.Add(box);return box;}
         var workspaceBox=Text("Workspace",settings.WorkspacePath);
         var provider=Choice("Summary provider",["claude","codex","agy","ollama","off"],settings.SummaryProvider);
-        var model=Text("Model (sonnet / opus / haiku, or provider model id)",settings.SummaryModel);
+        var model=Text("Model (blank uses the provider default)",settings.SummaryModel);
+        var toolPath=Text("CLI executable path (optional)",settings.ToolPaths.GetValueOrDefault(settings.SummaryProvider)??"");
+        var choices=new ComboBox{Header="Available models",ItemsSource=ModelCatalog.Models(settings.SummaryProvider),HorizontalAlignment=HorizontalAlignment.Stretch};panel.Children.Add(choices);choices.SelectionChanged+=(_,_)=>{if(choices.SelectedItem is string slug)model.Text=slug;};
+        var previousProvider=settings.SummaryProvider;
+        provider.SelectionChanged+=(_,_)=>
+        {
+            settings.ProviderModels[previousProvider]=model.Text;
+            if(!string.IsNullOrWhiteSpace(toolPath.Text))settings.ToolPaths[previousProvider]=toolPath.Text;else settings.ToolPaths.Remove(previousProvider);
+            var current=provider.SelectedItem?.ToString()??"off";previousProvider=current;choices.ItemsSource=ModelCatalog.Models(current);model.Text=settings.ProviderModels.GetValueOrDefault(current)??ModelCatalog.Models(current).FirstOrDefault()??"";toolPath.Text=settings.ToolPaths.GetValueOrDefault(current)??"";
+        };
         var language=Choice("Summary language",["thai","english","meeting"],settings.SummaryLanguage);
+        CheckBox Toggle(string label,bool value){var control=new CheckBox{Content=label,IsChecked=value};panel.Children.Add(control);return control;}
+        var autoSummary=Toggle("Summarise after transcription",settings.AutoSummarise);
+        var separate=Toggle("Separate speakers",settings.SeparateSpeakers);
+        var calendarTitles=Toggle("Use calendar titles",settings.TitleFromCalendar);
+        var external=Toggle("Mark external calendar meetings confidential",settings.ConfidentialExternal);
+        var anyApp=Toggle("Ask to record any app using the microphone",settings.AskAnyApp);
         var mode=Choice("Default recording mode",["screen","voice"],settings.RecordMode);
         var speech=Choice("Spoken language",["th","en","auto"],settings.SpeechLanguage);
-        var signin=new Button{Content="Sign In…"};signin.Click+=(_,_)=>{try{DesktopIntegration.SignIn(provider.SelectedItem?.ToString()??"claude",settings);}catch(Exception ex){Status.Message=ex.Message;}};panel.Children.Add(signin);
+        var signin=new Button{Content="Sign In…"};signin.Click+=(_,_)=>{try{if(provider.SelectedItem is string p){if(!string.IsNullOrWhiteSpace(toolPath.Text))settings.ToolPaths[p]=toolPath.Text;else settings.ToolPaths.Remove(p);}DesktopIntegration.SignIn(provider.SelectedItem?.ToString()??"claude",settings);}catch(Exception ex){Status.Message=ex.Message;}};panel.Children.Add(signin);
         var models=new Button{Content="Download Speech Models…"};models.Click+=async(_,_)=>await RunJob(()=>new ModelStore(Path.Combine(AppSettings.Support,"models")).DownloadAsync(settings.SeparateSpeakers,new Progress<string>(s=>Status.Message=s)),"Speech models installed");panel.Children.Add(models);
+        var briefingMode=Choice("Audio briefing",["off","request","after"],settings.BriefingMode);
+        var voices=SpeechSynthesizer.AllVoices.ToArray();
+        var thaiVoice=new ComboBox{Header="Thai voice",ItemsSource=voices,DisplayMemberPath="DisplayName",SelectedItem=voices.FirstOrDefault(v=>v.Id==settings.BriefingVoiceThai)??voices.FirstOrDefault(v=>v.Language.StartsWith("th",StringComparison.OrdinalIgnoreCase)),HorizontalAlignment=HorizontalAlignment.Stretch};panel.Children.Add(thaiVoice);
+        var englishVoice=new ComboBox{Header="English voice",ItemsSource=voices,DisplayMemberPath="DisplayName",SelectedItem=voices.FirstOrDefault(v=>v.Id==settings.BriefingVoiceEnglish)??voices.FirstOrDefault(v=>v.Language.StartsWith("en",StringComparison.OrdinalIgnoreCase)),HorizontalAlignment=HorizontalAlignment.Stretch};panel.Children.Add(englishVoice);
+        var compress=Toggle("Compress audio losslessly after transcription",settings.CompressAudio);
+        var videoDays=new NumberBox{Header="Keep video (days; 0 means forever)",Value=settings.KeepVideoDays,Minimum=0};panel.Children.Add(videoDays);
+        var audioDays=new NumberBox{Header="Keep audio after transcript (days; 0 means forever)",Value=settings.KeepAudioDays,Minimum=0};panel.Children.Add(audioDays);
         var sync=Choice("Sync",["off","folder","googleDrive"],settings.SyncMode);
         var googleClient=Text("Google Desktop OAuth client ID (your own)",settings.GoogleClientID??"");
         var googleSecret=new PasswordBox{Header="Google Desktop OAuth client secret",Password=new ProtectedTokenStore("google-client-secret").Read()??""};panel.Children.Add(googleSecret);
@@ -351,11 +420,18 @@ public sealed partial class MainWindow : Window
         },"Google Drive connected");panel.Children.Add(connect);
         var disconnect=new Button{Content="Disconnect Google Drive"};disconnect.Click+=async(_,_)=>await RunJob(()=>GoogleAuth().DisconnectAsync(),"Google Drive disconnected");panel.Children.Add(disconnect);
         var syncFolder=Text("Sync folder (Google Drive, OneDrive or Dropbox)",settings.SyncFolder??"");
+        var uploadText=Toggle("Sync text and referenced pictures",settings.DriveUploadText);
+        var uploadMedia=Toggle("Sync recording media",settings.DriveUploadMedia);
+        var perGroup=Toggle("Keep a sync folder per group",settings.SyncFolderPerGroup);
         var startup=new CheckBox{Content="Open at login",IsChecked=DesktopIntegration.IsStartupEnabled};panel.Children.Add(startup);
         var about=new TextBlock{Text="Minutes 0.7.0 · Windows preview\n"+string.Join("\n",Changelog.Parse(Read(AppContext.BaseDirectory,"CHANGELOG.md")).Take(1).SelectMany(r=>r.Items)),TextWrapping=TextWrapping.Wrap};panel.Children.Add(about);
         var dialog=new ContentDialog{Title="Settings",Content=new ScrollViewer{Content=panel},PrimaryButtonText="Save",CloseButtonText="Cancel",XamlRoot=Content.XamlRoot};
         if(await dialog.ShowAsync()!=ContentDialogResult.Primary)return;
         settings.WorkspacePath=workspaceBox.Text;settings.SummaryProvider=provider.SelectedItem?.ToString()??"off";settings.SummaryModel=model.Text;settings.SummaryLanguage=language.SelectedItem?.ToString()??"thai";settings.SpeechLanguage=speech.SelectedItem?.ToString()??"auto";settings.SyncMode=sync.SelectedItem?.ToString()??"off";settings.SyncFolder=string.IsNullOrWhiteSpace(syncFolder.Text)?null:syncFolder.Text;
+        settings.ProviderModels[settings.SummaryProvider]=model.Text;
+        if(!string.IsNullOrWhiteSpace(toolPath.Text))settings.ToolPaths[settings.SummaryProvider]=toolPath.Text;else settings.ToolPaths.Remove(settings.SummaryProvider);
+        settings.AutoSummarise=autoSummary.IsChecked==true;settings.SeparateSpeakers=separate.IsChecked==true;settings.TitleFromCalendar=calendarTitles.IsChecked==true;settings.ConfidentialExternal=external.IsChecked==true;settings.AskAnyApp=anyApp.IsChecked==true;
+        settings.BriefingMode=briefingMode.SelectedItem?.ToString()??"request";settings.BriefingVoiceThai=(thaiVoice.SelectedItem as VoiceInformation)?.Id;settings.BriefingVoiceEnglish=(englishVoice.SelectedItem as VoiceInformation)?.Id;settings.CompressAudio=compress.IsChecked==true;settings.KeepVideoDays=(int)(double.IsNaN(videoDays.Value)?90:videoDays.Value);settings.KeepAudioDays=(int)(double.IsNaN(audioDays.Value)?0:audioDays.Value);settings.DriveUploadText=uploadText.IsChecked==true;settings.DriveUploadMedia=uploadMedia.IsChecked==true;settings.SyncFolderPerGroup=perGroup.IsChecked==true;
         settings.RecordMode=mode.SelectedItem?.ToString()??"screen";settings.Save();workspace=new(settings.WorkspacePath);DesktopIntegration.SetStartup(startup.IsChecked==true);Refresh();
     }
 }

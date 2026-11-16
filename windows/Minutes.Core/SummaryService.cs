@@ -86,7 +86,7 @@ public sealed class SummaryService : IDisposable
         if(result.RootElement.TryGetProperty("prompt_eval_count",out var read)&&read.GetInt32()>=window-16)throw new IOException("The transcript is longer than this model can read at once");
         return Regex.Replace(result.RootElement.GetProperty("message").GetProperty("content").GetString()??"",@"<think>[\s\S]*?</think>","");
     }
-    public async Task<string> SummarizeAsync(string folder,SummaryModel model,string language="thai",bool providerOff=false,bool force=false,CancellationToken cancel=default)
+    public async Task<string> SummarizeAsync(string folder,SummaryModel model,string language="thai",bool providerOff=false,bool force=false,CancellationToken cancel=default,Workspace? workspace=null,IReadOnlyList<CalendarEvent>? calendar=null,bool confidentialExternal=true)
     {
         if(providerOff)throw new InvalidOperationException("Summaries are off. Choose a provider under Summary in Settings.");
         var meta=Workspace.ReadMeta(folder)??throw new IOException("Meeting metadata missing");
@@ -95,12 +95,22 @@ public sealed class SummaryService : IDisposable
         var transcript=await File.ReadAllTextAsync(Path.Combine(folder,"transcript.md"),cancel);
         var frames=File.Exists(Path.Combine(folder,"frames","frames.json"))?JsonFiles.Read<VideoFrame[]>(Path.Combine(folder,"frames","frames.json"))??[]:[];
         var pictures=SummaryPrompts.Pictures(frames);
-        var input=$"Meeting: {meta.Title}, {Transcripts.Stamp(meta.StartedAt)}\n"+(meta.Attendees?.Length>0?"Invited: "+string.Join(", ",meta.Attendees)+"\n":"")+"\n"+transcript+(pictures.Length>0?"\n\n"+pictures:"");
-        var raw=await RunAsync(model,SummaryPrompts.Prompt(language,pictures.Length>0,meta.RecordMode=="voice"),input,cancel);
-        var text=SummaryPrompts.KeepKnownPictures(raw,frames.Select(f=>f.File).ToHashSet(StringComparer.Ordinal)).Trim();if(text.Length==0)throw new IOException(model.Label+" returned an empty summary");
+        var events=workspace!=null?SummaryPrompts.ChoosableEvents(meta,calendar??[]):[];
+        var invited=events.Count>0?SummaryPrompts.EventList(events):(meta.Attendees?.Length>0?"Invited: "+string.Join(", ",meta.Attendees)+"\n":"");
+        var input=$"Meeting: {meta.Title}, {Transcripts.Stamp(meta.StartedAt)}\n"+invited+"\n"+transcript+(pictures.Length>0?"\n\n"+pictures:"");
+        var raw=await RunAsync(model,SummaryPrompts.Prompt(language,pictures.Length>0,meta.RecordMode=="voice",events.Count>0),input,cancel);
+        var (picked,reply)=SummaryPrompts.ChosenEvent(raw,events.Count);
+        var text=SummaryPrompts.KeepKnownPictures(reply,frames.Select(f=>f.File).ToHashSet(StringComparer.Ordinal)).Trim();if(text.Length==0)throw new IOException(model.Label+" returned an empty summary");
+        folder=workspace?.Find(meta.Id)?.Folder??folder;
+        if(picked is {} index&&workspace!=null&&Workspace.ReadMeta(folder)?.Title==meta.Title&&events[index].Title!=meta.Title)
+        {
+            var renamed=workspace.Rename(new(folder,Workspace.ReadMeta(folder)!),events[index].Title);folder=renamed.Folder;
+            workspace.Update(folder,m=>{m.Attendees=events[index].Attendees;if(confidentialExternal&&events[index].HasExternal)m.Confidential=true;});
+        }
         var current=Workspace.ReadMeta(folder)??meta;
         JsonFiles.AtomicWrite(Path.Combine(folder,"summary.md"),$"# {current.Title}\n\n{Transcripts.Stamp(meta.StartedAt)} · Summarised by {model.Label}\n\n{text}\n");
         current.SummaryModel=model.RawValue;current.SummarizedAt=DateTimeOffset.Now;current.SentAnyway=force&&current.Confidential==true?true:null;Workspace.WriteMeta(folder,current);
+        if(File.Exists(Path.Combine(folder,"comments.json")))CommentFiles.Save(folder,CommentFiles.Read(folder),current.Title);
         return Path.Combine(folder,"summary.md");
     }
     public void Dispose(){if(ollama!=null){try{if(!ollama.HasExited)ollama.Kill(true);}catch(InvalidOperationException){}ollama.Dispose();}http.Dispose();}

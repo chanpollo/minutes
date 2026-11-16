@@ -45,3 +45,14 @@ public sealed class CompatibilityTests
         var random=new Random(42);var a=Enumerable.Range(0,300).Select(_=>random.NextDouble()).ToArray();var b=new double[3].Concat(a).ToArray();Assert.True(AudioAnalysis.Leak(a,b)>.99);Assert.Equal(0,AudioAnalysis.Leak(a.Take(50).ToArray(),b));Assert.Equal(0,AudioAnalysis.Leak(new double[300],new double[300]));
     }
 }
+
+public sealed class SpeakerRenameTests
+{
+    [Fact] public void ChangesOnlyExactTurnLabels()
+    {
+        const string input="# Meeting\n\n**[00:00:01] Me:** Speaker 1 said this.\n\n**[00:00:02] Speaker 1:** Hello.\n";
+        var changed=Transcripts.RenameSpeaker(input,"Speaker 1","Synthetic Voice");Assert.Contains("Me:** Speaker 1 said this",changed);Assert.Contains("00:00:02] Synthetic Voice:** Hello",changed);
+    }
+    [Theory][InlineData("bad\nname")][InlineData("bad:name")][InlineData(" ")]
+    public void RefusesNamesThatBreakTranscriptMarkers(string name)=>Assert.Throws<ArgumentException>(()=>Transcripts.RenameSpeaker("","Me",name));
+}
