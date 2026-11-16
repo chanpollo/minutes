@@ -1,0 +1,34 @@
+<Window x:Class="Minutes.App.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Grid Padding="16" RowSpacing="12" ColumnSpacing="16">
+    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+    <Grid.ColumnDefinitions><ColumnDefinition Width="280"/><ColumnDefinition Width="*"/><ColumnDefinition Width="360"/></Grid.ColumnDefinitions>
+    <CommandBar Grid.ColumnSpan="3" DefaultLabelPosition="Right">
+      <AppBarButton x:Name="RecordButton" Label="Record Voice" Icon="Microphone" Click="Record_Click"/>
+      <AppBarButton x:Name="StopButton" Label="Stop" Icon="Stop" Click="Stop_Click" IsEnabled="False"/>
+      <AppBarToggleButton x:Name="MuteButton" Label="Mute Microphone" Icon="Mute" Click="Mute_Click" IsEnabled="False"/>
+      <AppBarButton Label="New Note" Icon="Add" Click="NewNote_Click"/>
+      <AppBarButton Label="Summarise" Icon="Edit" Click="Summarise_Click"/>
+      <AppBarButton Label="Settings" Icon="Setting" Click="Settings_Click"/>
+    </CommandBar>
+    <InfoBar x:Name="Status" Grid.Row="1" Grid.ColumnSpan="3" IsOpen="True" IsClosable="False" Message="" Severity="Informational"/>
+    <Grid Grid.Row="2" RowSpacing="8"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+      <TextBox x:Name="Search" PlaceholderText="Search meetings" TextChanged="Search_Changed"/>
+      <ComboBox x:Name="Filter" Grid.Row="1" SelectionChanged="Filter_Changed" SelectedIndex="0" HorizontalAlignment="Stretch"><ComboBoxItem Content="Meetings"/><ComboBoxItem Content="Pinned"/><ComboBoxItem Content="Archived"/></ComboBox>
+      <ListView x:Name="MeetingList" Grid.Row="2" SelectionChanged="Meeting_Selected"/>
+      <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="8"><Button Content="New group" Click="NewGroup_Click"/><ComboBox x:Name="GroupFilter" Width="150" PlaceholderText="All groups" SelectionChanged="Group_Changed" DisplayMemberPath="Name"/></StackPanel>
+    </Grid>
+    <Grid Grid.Row="2" Grid.Column="1" RowSpacing="8"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="220"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+      <TextBox x:Name="MeetingTitle" Header="Title" LostFocus="Title_LostFocus"/>
+      <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8"><CheckBox x:Name="Confidential" Content="Confidential" Click="Confidential_Click"/><Button Content="Pin" Click="Pin_Click"/><Button Content="Archive" Click="Archive_Click"/><Button Content="Delete…" Click="Delete_Click"/><Button Content="Undo" Click="UndoDelete_Click"/><Button Content="Move to group…" Click="MoveGroup_Click"/><Button Content="Export…" Click="Export_Click"/></StackPanel>
+      <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8"><Button Content="Transcribe" Click="Transcribe_Click"/><Button Content="Rename speaker…" Click="RenameSpeaker_Click"/><Button Content="Sync now" Click="Sync_Click"/><Button Content="Open folder" Click="OpenFolder_Click"/><Button Content="Listen" Click="Listen_Click"/><Button Content="Capture" Click="Capture_Click"/></StackPanel>
+      <MediaPlayerElement x:Name="Player" Grid.Row="3" AreTransportControlsEnabled="True"/>
+      <TabView Grid.Row="4" IsAddTabButtonVisible="False"><TabViewItem Header="Summary" IsClosable="False"><ScrollViewer><TextBox x:Name="Summary" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" BorderThickness="0"/></ScrollViewer></TabViewItem><TabViewItem Header="Transcript" IsClosable="False"><ScrollViewer><TextBox x:Name="Transcript" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" BorderThickness="0"/></ScrollViewer></TabViewItem></TabView>
+    </Grid>
+    <Grid Grid.Row="2" Grid.Column="2" RowSpacing="8"><Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="160"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+      <TextBox x:Name="Notes" Header="Notes" AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top" TextChanged="Notes_Changed"/>
+      <StackPanel Grid.Row="1" Spacing="8"><StackPanel Orientation="Horizontal" Spacing="4"><Button Content="B" Click="Bold_Click"/><Button Content="I" Click="Italic_Click"/><Button Content="U" Click="Underline_Click"/><Button Content="Checklist" Click="Checklist_Click"/><Button Content="Picture…" Click="Picture_Click"/></StackPanel><Button Content="Comment on selection…" Click="Comment_Click"/></StackPanel>
+      <ListView x:Name="Comments" Grid.Row="2"/>
+      <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="8"><Button Content="Reply…" Click="Reply_Click"/><Button Content="Ask AI" Click="AskAI_Click"/><Button Content="Undo AI" Click="UndoAI_Click"/><Button Content="Resolve / Reopen" Click="Resolve_Click"/></StackPanel>
+    </Grid>
+  </Grid>
+</Window>

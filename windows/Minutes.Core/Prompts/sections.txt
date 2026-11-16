@@ -1,0 +1,15 @@
+## \(w.summary)
+One or two short paragraphs: what the meeting was about and what came out of it.
+
+## \(w.decisions)
+A bullet list of the decisions that were actually made.
+
+## \(w.actions)
+A markdown table with exactly these columns:
+| \(w.task) | \(w.owner) | \(w.due) | \(w.time) |
+- \(w.task): the task.
+- \(w.owner): a person's name only if it is said in the transcript; "Me" if the person who recorded took the task; otherwise "\(w.unnamed)". Never guess an owner.
+- \(w.due): the due date or deadline only if one is stated; otherwise "-". Never invent a date.
+- \(w.time): the timestamp of the turn where the task was agreed, copied with its brackets, e.g. [00:12:34].
+
+Use only what the transcript says. If a section has nothing, write "\(w.none)" under its heading.

@@ -1,0 +1,62 @@
+name: Windows
+on:
+  push:
+    branches: [feature/windows-app]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: microsoft/setup-msbuild@v2
+      - name: Restore core tests
+        working-directory: windows
+        run: dotnet restore Minutes.Core.Tests/Minutes.Core.Tests.csproj
+      - name: Test portable logic
+        working-directory: windows
+        run: dotnet test Minutes.Core.Tests/Minutes.Core.Tests.csproj --no-restore -c Release --logger "trx;LogFileName=core.trx" --results-directory artifacts/tests
+      - name: Restore Windows app
+        working-directory: windows
+        run: msbuild Minutes.App/Minutes.App.csproj -t:Restore -p:Platform=x64 -p:Configuration=Release
+      - name: Build Windows app
+        working-directory: windows
+        run: msbuild Minutes.App/Minutes.App.csproj -t:Build -p:Configuration=Release -p:Platform=x64
+      - name: Publish unsigned portable app
+        working-directory: windows
+        run: msbuild Minutes.App/Minutes.App.csproj -t:Publish -p:Configuration=Release -p:Platform=x64 -p:PublishDir="${{ github.workspace }}/windows/artifacts/Minutes/"
+      - name: Restore speech engine cache
+        uses: actions/cache@v4
+        with:
+          path: windows/.tool-cache
+          key: windows-x64-speech-${{ hashFiles('windows/scripts/Bundle-Tools.ps1') }}
+      - name: Bundle local speech engines
+        shell: pwsh
+        run: ./windows/scripts/Bundle-Tools.ps1 -Destination windows/artifacts/Minutes
+      - name: Stamp build identity
+        shell: pwsh
+        run: |
+          @{version=(Get-Content VERSION -Raw).Trim(); build="$env:GITHUB_RUN_NUMBER"; commit="$env:GITHUB_SHA"; builtUtc=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json | Set-Content windows/artifacts/Minutes/build.json -Encoding utf8
+      - name: Include validation guide
+        shell: pwsh
+        run: Copy-Item windows/docs/TESTING.md windows/artifacts/Minutes/TESTING.md
+      - name: Archive
+        shell: pwsh
+        run: Compress-Archive windows/artifacts/Minutes/* windows/artifacts/Minutes-0.7.0-win-x64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Minutes-0.7.0-win-x64-unsigned
+          path: windows/artifacts/Minutes-0.7.0-win-x64.zip
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Windows-test-results
+          path: windows/artifacts/tests
