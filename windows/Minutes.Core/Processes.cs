@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace Minutes.Core;
 
@@ -26,12 +27,12 @@ public static class ToolProcess
         var arguments = args.ToArray();
         if (OperatingSystem.IsWindows() && Path.GetExtension(executable).ToLowerInvariant() is ".cmd" or ".bat")
         {
-            // npm shims are cmd scripts. Keep transcript data on stdin, never in the command string.
-            info.FileName = Environment.GetEnvironmentVariable("COMSPEC") ?? "cmd.exe";
-            info.ArgumentList.Add("/d");info.ArgumentList.Add("/s");info.ArgumentList.Add("/c");
-            info.ArgumentList.Add("\"" + string.Join(" ",new[]{executable}.Concat(arguments).Select(CmdQuote)) + "\"");
+            var entry = NpmEntry(executable);
+            if (entry == null) throw new IOException("Cannot resolve npm CLI shim. Set the native executable path in Settings.");
+            info.FileName = Find("node") ?? throw new IOException("Node.js is required for this CLI");
+            info.ArgumentList.Add(entry);
         }
-        else foreach (var arg in arguments) info.ArgumentList.Add(arg);
+        foreach (var arg in arguments) info.ArgumentList.Add(arg);
         if (environment != null) foreach (var (key,value) in environment) info.Environment[key] = value;
         using var process = new Process { StartInfo = info };
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancel); deadline.CancelAfter(timeout);
@@ -45,6 +46,15 @@ public static class ToolProcess
             return new(process.ExitCode,await output,await errors);
         }
         catch (OperationCanceledException) when (!cancel.IsCancellationRequested) { throw new TimeoutException($"{Path.GetFileName(executable)} did not finish within {timeout.TotalMinutes:0} minutes"); }
+    }
+    public static string? NpmEntry(string shim)
+    {
+        var text = File.ReadAllText(shim);
+        var match = Regex.Match(text, @"%dp0%[\\/]([^\r\n""]+?\.(?:mjs|cjs|js))", RegexOptions.IgnoreCase);
+        if (!match.Success) return null;
+        var root = Path.GetDirectoryName(Path.GetFullPath(shim))!;
+        var candidate = Path.GetFullPath(Path.Combine(root, match.Groups[1].Value.Replace('\\', Path.DirectorySeparatorChar)));
+        return candidate.StartsWith(root.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) && File.Exists(candidate) ? candidate : null;
     }
     public static string CmdQuote(string value)
     {

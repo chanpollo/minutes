@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using NAudio.Wave;
+using NAudio.CoreAudioApi;
 using NAudio.Wave.SampleProviders;
 using Minutes.Core;
 
@@ -50,14 +51,18 @@ public sealed class AudioRecorder : IDisposable
     private string? folder;
     public bool IsRecording=>folder!=null;
     public bool Muted { get; private set; }
-    public void Start(string directory)
+    public async Task<string> StartAsync(string directory, uint? processId = null)
     {
         if(IsRecording)throw new InvalidOperationException("Already recording");Directory.CreateDirectory(directory);
         try
         {
             clock.Restart();mic=new(new WasapiCapture(),Path.Combine(directory,"me.capture.wav"),clock);
-            others=new(new WasapiLoopbackCapture(),Path.Combine(directory,"others.capture.wav"),clock);
-            mic.Start();others.Start();folder=directory;
+            IWaveIn call;
+            var scope="Whole-system audio";
+            try{call=processId is {} pid?await ProcessLoopbackCapture.CreateAsync(pid):new WasapiLoopbackCapture();if(processId!=null)scope="Meeting app audio";}
+            catch(Exception e)when(e is System.Runtime.InteropServices.COMException or PlatformNotSupportedException or TimeoutException){call=new WasapiLoopbackCapture();}
+            others=new(call,Path.Combine(directory,"others.capture.wav"),clock);
+            mic.Start();others.Start();folder=directory;return scope;
         }
         catch{DisposeTracks();clock.Stop();throw;}
     }

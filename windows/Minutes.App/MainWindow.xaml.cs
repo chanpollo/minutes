@@ -109,12 +109,12 @@ public sealed partial class MainWindow : Window
         }
         var note=selected?.Meta.IsNote==true?selected:null;
         var title=note?.Meta.Title??await Ask("Record Voice · Tell everyone you are recording.","Meeting");if(title==null)return;
-        await RunJob(()=>
+        await RunJob(async()=>
         {
             Player.MediaPlayer?.Pause();var meta=note==null?new MeetingMeta{Title=title,Mode="voice",StartedAt=DateTimeOffset.Now}:new MeetingMeta{Id=note.Meta.Id,Title=note.Meta.Title,Note=true,GroupID=note.Meta.GroupID,Confidential=note.Meta.Confidential,Mode="voice",StartedAt=DateTimeOffset.Now};
             var folder=Path.Combine(AppSettings.Support,"Recording",meta.Id);if(Directory.Exists(folder))throw new IOException("An unfinished recording with this identity exists. Recover it before recording again.");
-            Directory.CreateDirectory(folder);Workspace.WriteMeta(folder,meta);recorder.Start(folder);recordingFolder=folder;
-            RecordButton.IsEnabled=false;StopButton.IsEnabled=MuteButton.IsEnabled=true;Status.Message="Recording · Microphone and whole-system audio";return Task.CompletedTask;
+            Directory.CreateDirectory(folder);Workspace.WriteMeta(folder,meta);var scope=await recorder.StartAsync(folder);recordingFolder=folder;
+            RecordButton.IsEnabled=false;StopButton.IsEnabled=MuteButton.IsEnabled=true;Status.Message="Recording · Microphone and "+scope;
         },"Recording · Microphone and whole-system audio");
     }
     private async void Stop_Click(object sender,RoutedEventArgs e)
@@ -171,7 +171,10 @@ public sealed partial class MainWindow : Window
     {if(meeting.Meta.Sync!=null)await new FolderSync(workspace).CopyAsync(meeting,settings.SyncFolder??"");}
     private async Task SyncAllAsync(){foreach(var m in workspace.Meetings())if(m.Meta.Confidential==true)await WithdrawAsync(m);else await SyncMeetingAsync(m);}
     private async void Sync_Click(object sender,RoutedEventArgs e){if(selected!=null)await RunJob(()=>SyncMeetingAsync(selected),"Sync complete");}
-    private Task CleanupAsync()=>Task.CompletedTask;
+    private async Task CleanupAsync()
+    {
+        await Task.Run(()=>Housekeeping.Run(workspace,DateTimeOffset.Now,new(settings.KeepVideoDays,settings.KeepAudioDays)));
+    }
     private async void Listen_Click(object sender,RoutedEventArgs e)
     {
         if(selected==null||recorder.IsRecording)return;var script=Read(selected.Folder,"briefing.md");if(script.Length==0){Status.Message="No briefing.md yet. Briefing generation is pending; see PARITY.md.";return;}
