@@ -51,7 +51,7 @@ public record MeetingGroup(string Id, string Name);
 public record Meeting(string Folder, MeetingMeta Meta)
 {
     public string? Activity { get; init; }
-    public override string ToString() => $"{(Meta.PinnedAt != null ? "[Pinned] " : "")}{Meta.Title}"+(Activity==null?"":" · "+Activity);
+    public override string ToString() => $"{(Meta.PinnedAt != null ? "[Pinned] " : "")}{Meta.Title}" + (Activity == null ? "" : " · " + Activity);
 }
 
 public static class JsonFiles
@@ -64,6 +64,10 @@ public static class JsonFiles
         Converters = { new SwiftDateConverter() },
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
+    public static T? TryRead<T>(string path)
+    {
+        try { return Read<T>(path); } catch (Exception error) when (error is IOException or JsonException or UnauthorizedAccessException) { return default; }
+    }
     public static T? Read<T>(string path) => JsonSerializer.Deserialize<T>(File.ReadAllText(path), Options);
     public static void Write<T>(string path, T value) => AtomicWrite(path, JsonSerializer.Serialize(value, Options));
     public static void AtomicWrite(string path, string text)
@@ -147,7 +151,7 @@ public sealed class Workspace(string root)
         var head = "# " + old;
         return text == head || text.StartsWith(head + "\n", StringComparison.Ordinal) || text.StartsWith(head + "\r\n", StringComparison.Ordinal) ? "# " + title + text[head.Length..] : null;
     }
-    public IReadOnlyList<MeetingGroup> Groups() => File.Exists(Path.Combine(Root, "groups.json")) ? JsonFiles.Read<MeetingGroup[]>(Path.Combine(Root, "groups.json")) ?? [] : [];
+    public IReadOnlyList<MeetingGroup> Groups() => File.Exists(Path.Combine(Root, "groups.json")) ? JsonFiles.TryRead<MeetingGroup[]>(Path.Combine(Root, "groups.json")) ?? [] : [];
     public void SaveGroups(IEnumerable<MeetingGroup> groups) => JsonFiles.Write(Path.Combine(Root, "groups.json"), groups);
 }
 

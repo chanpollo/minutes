@@ -92,3 +92,29 @@ public sealed class RepairFailureTests
         var result=TranscriptCleaner.Clean([new(1,2,"a long sentence"),new(3,4,"a long sentence"),new(5,6,"a long sentence")],(_,_)=>throw new TimeoutException("synthetic timeout"));Assert.Single(result.Lines);Assert.Empty(result.Retried);
     }
 }
+
+public sealed class OptionalFileTests
+{
+    [Theory][InlineData("groups.json")][InlineData("comments.json")]
+    public void InvalidOptionalJsonDoesNotCrashWorkspace(string name)
+    {
+        var root=Path.Combine(Path.GetTempPath(),"minutes-optional-"+Guid.NewGuid());Directory.CreateDirectory(root);File.WriteAllText(Path.Combine(root,name),"{interrupted");
+        try{if(name=="groups.json")Assert.Empty(new Workspace(root).Groups());else Assert.Empty(CommentFiles.Read(root));}finally{Directory.Delete(root,true);}
+    }
+}
+
+public sealed class CommentMigrationTests
+{
+    [Fact] public void LegacyReplyBecomesThreadMessageWithOriginalRevisionIdentity()
+    {
+        var folder=Path.Combine(Path.GetTempPath(),"minutes-comment-"+Guid.NewGuid());Directory.CreateDirectory(folder);
+        var id=Guid.NewGuid().ToString();
+        JsonFiles.Write(Path.Combine(folder,"comments.json"),new[]{new{id,target="summary",quote="Synthetic",prefix="before",suffix="after",text="Fix this",author="Reader",createdAt=DateTimeOffset.Parse("2026-10-30T10:00:00Z"),reply=new{text="Fixed",at=DateTimeOffset.Parse("2026-10-30T10:01:00Z"),model="sonnet",changed=true,revisedHash="synthetic-hash"}}});
+        try{var c=Assert.Single(CommentFiles.Read(folder));var message=Assert.Single(c.Replies!);Assert.Equal(id,message.Id);Assert.Equal("synthetic-hash",message.Revised!["summary.md"]);Assert.Equal("Claude",message.Author);CommentFiles.Save(folder,[c],"Synthetic");Assert.DoesNotContain("\"reply\":",File.ReadAllText(Path.Combine(folder,"comments.json")));}
+        finally{Directory.Delete(folder,true);}
+    }
+    [Fact] public void MissingRequiredCommentFieldsAreNotInvented()
+    {
+        var folder=Path.Combine(Path.GetTempPath(),"minutes-comment-"+Guid.NewGuid());Directory.CreateDirectory(folder);File.WriteAllText(Path.Combine(folder,"comments.json"),"[{}]");try{Assert.Empty(CommentFiles.Read(folder));}finally{Directory.Delete(folder,true);}
+    }
+}

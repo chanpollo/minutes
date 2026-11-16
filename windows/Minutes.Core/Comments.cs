@@ -1,15 +1,20 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 
 namespace Minutes.Core;
 
 public sealed class CommentMessage
 {
+    [JsonRequired]
     public string Id { get; set; } = Guid.NewGuid().ToString().ToUpperInvariant();
+    [JsonRequired]
     public string Author { get; set; } = "";
+    [JsonRequired]
     public string Text { get; set; } = "";
+    [JsonRequired]
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
     public DateTimeOffset? EditedAt { get; set; }
     public bool? Claude { get; set; }
@@ -19,14 +24,22 @@ public sealed class CommentMessage
 }
 public sealed class MeetingComment
 {
+    [JsonRequired]
     public string Id { get; set; } = Guid.NewGuid().ToString().ToUpperInvariant();
+    [JsonRequired]
     public string Target { get; set; } = "summary";
+    [JsonRequired]
     public string Quote { get; set; } = "";
+    [JsonRequired]
     public string Prefix { get; set; } = "";
+    [JsonRequired]
     public string Suffix { get; set; } = "";
     public double? LineTime { get; set; }
+    [JsonRequired]
     public string Text { get; set; } = "";
+    [JsonRequired]
     public string Author { get; set; } = "";
+    [JsonRequired]
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
     public DateTimeOffset? EditedAt { get; set; }
     public List<CommentMessage>? Replies { get; set; }

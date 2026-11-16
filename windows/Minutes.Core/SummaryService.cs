@@ -94,7 +94,7 @@ public sealed class SummaryService : IDisposable
         if (meta.IsNote) throw new InvalidOperationException("Record this note before summarising it");
         if (meta.Confidential == true && !force) throw new InvalidOperationException("Marked confidential, so it was not sent for summary.");
         var transcript = await File.ReadAllTextAsync(Path.Combine(folder, "transcript.md"), cancel);
-        var frames = File.Exists(Path.Combine(folder, "frames", "frames.json")) ? JsonFiles.Read<VideoFrame[]>(Path.Combine(folder, "frames", "frames.json")) ?? [] : [];
+        var frames = File.Exists(Path.Combine(folder, "frames", "frames.json")) ? JsonFiles.TryRead<VideoFrame[]>(Path.Combine(folder, "frames", "frames.json")) ?? [] : [];
         var pictures = SummaryPrompts.Pictures(frames);
         var events = workspace != null ? SummaryPrompts.ChoosableEvents(meta, calendar ?? []) : [];
         var invited = events.Count > 0 ? SummaryPrompts.EventList(events) : (meta.Attendees?.Length > 0 ? "Invited: " + string.Join(", ", meta.Attendees) + "\n" : "");

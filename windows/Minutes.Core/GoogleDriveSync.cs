@@ -34,13 +34,13 @@ public sealed class GoogleDriveSync(Workspace workspace, GoogleOAuth auth, HttpC
             if (state.FolderID == null || !await LiveAsync(state.FolderID, cancel)) state = new() { FolderID = await CreateFolderAsync(name, parent, cancel), FolderName = name, GroupID = group?.Id };
             else if (state.FolderName != name || state.GroupID != group?.Id)
             {
-                var url=Files+"/"+state.FolderID;
-                if(state.GroupID!=group?.Id)
+                var url = Files + "/" + state.FolderID;
+                if (state.GroupID != group?.Id)
                 {
-                    using var existing=await SendAsync(()=>new(HttpMethod.Get,Files+"/"+state.FolderID+"?fields=parents"),cancel);
-                    using var json=JsonDocument.Parse(await existing.Content.ReadAsStringAsync(cancel));
-                    var parents=json.RootElement.TryGetProperty("parents",out var p)?string.Join(",",p.EnumerateArray().Select(e=>e.GetString())):"";
-                    url+="?addParents="+Uri.EscapeDataString(parent)+(parents.Length>0?"&removeParents="+Uri.EscapeDataString(parents):"");
+                    using var existing = await SendAsync(() => new(HttpMethod.Get, Files + "/" + state.FolderID + "?fields=parents"), cancel);
+                    using var json = JsonDocument.Parse(await existing.Content.ReadAsStringAsync(cancel));
+                    var parents = json.RootElement.TryGetProperty("parents", out var p) ? string.Join(",", p.EnumerateArray().Select(e => e.GetString())) : "";
+                    url += "?addParents=" + Uri.EscapeDataString(parent) + (parents.Length > 0 ? "&removeParents=" + Uri.EscapeDataString(parents) : "");
                 }
                 using var changed = await SendAsync(() => new(HttpMethod.Patch, url) { Content = JsonContent.Create(new { name }) }, cancel);
                 state.FolderName = name; state.GroupID = group?.Id;
@@ -105,28 +105,28 @@ public sealed class GoogleDriveSync(Workspace workspace, GoogleOAuth auth, HttpC
         var location = initiated.Headers.Location ?? throw new IOException("Google returned no resumable upload session");
         if (location.Scheme != "https" || location.Host != "www.googleapis.com") throw new IOException("Unexpected Google upload endpoint");
         await using var source = File.OpenRead(file); var buffer = new byte[8 * 1024 * 1024]; long offset = 0;
-        var stalls=0;
-        while(true)
+        var stalls = 0;
+        while (true)
         {
-            cancel.ThrowIfCancellationRequested();source.Position=offset;var length=(int)Math.Min(buffer.Length,total-offset);if(length>0)await source.ReadExactlyAsync(buffer.AsMemory(0,length),cancel);
+            cancel.ThrowIfCancellationRequested(); source.Position = offset; var length = (int)Math.Min(buffer.Length, total - offset); if (length > 0) await source.ReadExactlyAsync(buffer.AsMemory(0, length), cancel);
             HttpRequestMessage Request(bool probe)
             {
-                var content=new ByteArrayContent(buffer,0,probe?0:length);content.Headers.ContentType=new(Mime(file));content.Headers.TryAddWithoutValidation("Content-Range",probe?$"bytes */{total}":ContentRange(offset,length,total));return new(HttpMethod.Put,location){Content=content};
+                var content = new ByteArrayContent(buffer, 0, probe ? 0 : length); content.Headers.ContentType = new(Mime(file)); content.Headers.TryAddWithoutValidation("Content-Range", probe ? $"bytes */{total}" : ContentRange(offset, length, total)); return new(HttpMethod.Put, location) { Content = content };
             }
             HttpResponseMessage uploaded;
-            try{uploaded=await SendAsync(()=>Request(false),cancel,allowResume:true);}
-            catch(HttpRequestException error)when(error.StatusCode is not (HttpStatusCode.NotFound or HttpStatusCode.Gone))
-            {uploaded=await SendAsync(()=>Request(true),cancel,allowResume:true);}
-            using(uploaded)
+            try { uploaded = await SendAsync(() => Request(false), cancel, allowResume: true); }
+            catch (HttpRequestException error) when (error.StatusCode is not (HttpStatusCode.NotFound or HttpStatusCode.Gone))
+            { uploaded = await SendAsync(() => Request(true), cancel, allowResume: true); }
+            using (uploaded)
             {
-                if((int)uploaded.StatusCode==308)
+                if ((int)uploaded.StatusCode == 308)
                 {
-                    var committed=CommittedBytes(uploaded.Headers.TryGetValues("Range",out var range)?range.FirstOrDefault():null);
-                    if(committed<offset||committed>total)throw new IOException("Google upload returned an invalid committed range");
-                    if(committed==offset){if(++stalls>=5)throw new IOException("Google upload did not advance");await Task.Delay(500,cancel);}else stalls=0;
-                    offset=committed;continue;
+                    var committed = CommittedBytes(uploaded.Headers.TryGetValues("Range", out var range) ? range.FirstOrDefault() : null);
+                    if (committed < offset || committed > total) throw new IOException("Google upload returned an invalid committed range");
+                    if (committed == offset) { if (++stalls >= 5) throw new IOException("Google upload did not advance"); await Task.Delay(500, cancel); } else stalls = 0;
+                    offset = committed; continue;
                 }
-                using var doc=JsonDocument.Parse(await uploaded.Content.ReadAsStringAsync(cancel));return doc.RootElement.GetProperty("id").GetString()!;
+                using var doc = JsonDocument.Parse(await uploaded.Content.ReadAsStringAsync(cancel)); return doc.RootElement.GetProperty("id").GetString()!;
             }
         }
     }

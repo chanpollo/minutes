@@ -5,15 +5,20 @@ public static class CommentFiles
     public static List<MeetingComment> Read(string folder)
     {
         var path = Path.Combine(folder, "comments.json"); if (!File.Exists(path)) return [];
-        var comments = JsonFiles.Read<List<MeetingComment>>(path) ?? [];
-        foreach (var c in comments)
+        var comments = JsonFiles.TryRead<List<MeetingComment>>(path) ?? [];
+        if (comments.Any(c => c.Target is not ("summary" or "transcript"))) return [];
+        try
         {
-            if (c.Reply is not { } old) continue;
-            var revised = old.TryGetProperty("revised", out var files) ? System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(files, JsonFiles.Options) : null;
-            if (revised == null && old.TryGetProperty("revisedHash", out var hash)) revised = new() { { c.Target == "summary" ? "summary.md" : "transcript.md", hash.GetString()! } };
-            var reply = new CommentMessage { Id = c.Id, Author = "Claude", Text = old.GetProperty("text").GetString() ?? "", CreatedAt = old.GetProperty("at").GetDateTimeOffset(), Claude = true, Model = old.GetProperty("model").GetString(), Revised = old.TryGetProperty("changed", out var changed) && changed.GetBoolean() ? revised : null, Undone = old.TryGetProperty("undone", out var undone) ? undone.GetBoolean() : null };
-            c.Replies = [reply, .. c.Replies ?? []]; c.Reply = null;
+            foreach (var c in comments)
+            {
+                if (c.Reply is not { } old) continue;
+                var revised = old.TryGetProperty("revised", out var files) ? System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(files, JsonFiles.Options) : null;
+                if (revised == null && old.TryGetProperty("revisedHash", out var hash)) revised = new() { { c.Target == "summary" ? "summary.md" : "transcript.md", hash.GetString()! } };
+                var reply = new CommentMessage { Id = c.Id, Author = "Claude", Text = old.GetProperty("text").GetString() ?? "", CreatedAt = old.GetProperty("at").GetDateTimeOffset(), Claude = true, Model = old.GetProperty("model").GetString(), Revised = old.TryGetProperty("changed", out var changed) && changed.GetBoolean() ? revised : null, Undone = old.TryGetProperty("undone", out var undone) ? undone.GetBoolean() : null };
+                c.Replies = [reply, .. c.Replies ?? []]; c.Reply = null;
+            }
         }
+        catch (Exception error) when (error is System.Text.Json.JsonException or KeyNotFoundException or InvalidOperationException or FormatException) { return []; }
         return comments;
     }
     public static void Save(string folder, IReadOnlyList<MeetingComment> comments, string title)
