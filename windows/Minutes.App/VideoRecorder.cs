@@ -27,6 +27,11 @@ internal sealed class VideoRecorder : IAsyncDisposable
     private string? screenFile;
     public double Offset { get; private set; }
     private VideoRecorder(GraphicsCaptureItem item, int fps) { this.item = item; this.fps = fps; device = CreateDevice(); }
+    public static VideoRecorder ForMeeting(Window owner, uint? processId, int fps = 15)
+    {
+        if (!GraphicsCaptureSession.IsSupported()) throw new PlatformNotSupportedException("Screen capture is not supported on this PC");
+        return new(WindowCapture.Create(WinRT.Interop.WindowNative.GetWindowHandle(owner), processId), fps);
+    }
     public static async Task<VideoRecorder?> PickAsync(Window owner, int fps = 15)
     {
         if (!GraphicsCaptureSession.IsSupported()) throw new PlatformNotSupportedException("Screen capture is not supported on this PC");

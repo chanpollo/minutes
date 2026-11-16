@@ -7,6 +7,7 @@ public sealed class AppSettings
     public static string Support => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Minutes");
     private static string FileName => Path.Combine(Support, "settings.json");
     public string WorkspacePath { get; set; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Meetings");
+    public Dictionary<string, string> AppModes { get; set; } = [];
     public string RecordMode { get; set; } = "screen";
     public string SpeechLanguage { get; set; } = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == "th" ? "th" : "auto";
     public string SummaryProvider { get; set; } = "claude";

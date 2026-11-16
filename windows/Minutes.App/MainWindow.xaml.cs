@@ -26,6 +26,8 @@ public sealed partial class MainWindow : Window
     private readonly DispatcherTimer micPoll = new() { Interval = TimeSpan.FromSeconds(2) };
     private MicUser? promptedCall, recordingCall;
     private string? promptedTitle;
+    private string? promptedMode;
+    private string? recordingVideoError;
     private ContentDialog? callDialog, stopDialog;
     private bool polling;
     private readonly DispatcherTimer maintenance = new() { Interval = TimeSpan.FromHours(6) };
@@ -34,10 +36,10 @@ public sealed partial class MainWindow : Window
         InitializeComponent(); Title = "Minutes";
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1440, 860));
         workspace = new(settings.WorkspacePath); summaries = new(AppSettings.Support, settings.FindTool);
-        desktop = new(this, () => Activate(), () => { if (recorder.IsRecording) Stop_Click(this, new RoutedEventArgs()); else Record_Click(this, new RoutedEventArgs()); }, () => Stop_Click(this, new RoutedEventArgs()), () => NewNote_Click(this, new RoutedEventArgs()), () => Settings_Click(this, new RoutedEventArgs()), () => !recorder.IsRecording && jobs.CurrentCount == 1);
+        desktop = new(this, () => Activate(), () => { if (recorder.IsRecording) Stop_Click(this, new RoutedEventArgs()); else Record_Click(this, new RoutedEventArgs()); }, () => Stop_Click(this, new RoutedEventArgs()), () => NewNote_Click(this, new RoutedEventArgs()), () => Settings_Click(this, new RoutedEventArgs()), () => !recorder.IsRecording && jobs.CurrentCount == 1, mode => { if (recorder.IsRecording) return; settings.RecordMode = mode; settings.Save(); RecordButton.Label = mode == "screen" ? "Record Screen" : "Record Voice"; Record_Click(this, new()); });
         Closed += (_, _) => { desktop.Dispose(); recorder.Dispose(); summaries.Dispose(); googleHttp.Dispose(); maintenance.Stop(); micPoll.Stop(); Player.MediaPlayer?.Dispose(); };
         var newNoteKey = new Microsoft.UI.Xaml.Input.KeyboardAccelerator { Key = Windows.System.VirtualKey.N, Modifiers = Windows.System.VirtualKeyModifiers.Control }; newNoteKey.Invoked += (_, e) => { NewNote_Click(this, new()); e.Handled = true; }; ((FrameworkElement)Content).KeyboardAccelerators.Add(newNoteKey);
-        Refresh(); Status.Message = "Waiting for a meeting";
+        RecordButton.Label = settings.RecordMode == "screen" ? "Record Screen" : "Record Voice"; Refresh(); Status.Message = "Waiting for a meeting";
         ((FrameworkElement)Content).Loaded += async (_, _) => await StartupAsync();
         maintenance.Tick += async (_, _) => await RunJob(async () => { await CleanupAsync(); await SyncAllAsync(); }, "Maintenance complete"); maintenance.Start(); micPoll.Tick += async (_, _) => await PollCallsAsync(); micPoll.Start();
     }
@@ -189,26 +191,27 @@ public sealed partial class MainWindow : Window
     {
         if (recorder.IsRecording) return;
         VideoRecorder? pickedVideo = null;
-        if (settings.RecordMode == "screen")
+        var mode = promptedCall == null ? settings.RecordMode : promptedMode ?? settings.AppModes.GetValueOrDefault(promptedCall.Owner) ?? "screen";
+        if (mode == "screen")
         {
-            try { pickedVideo = await VideoRecorder.PickAsync(this); if (pickedVideo == null) return; }
+            try { pickedVideo = VideoRecorder.ForMeeting(this, promptedCall?.ProcessId); }
             catch (Exception ex) { if (!await Confirm("Screen could not be recorded", ex.Message + " Start Voice instead?", "Record Voice")) return; }
         }
         var note = promptedCall == null && selected?.Meta.IsNote == true ? selected : null;
         var calendar = note == null && settings.TitleFromCalendar ? OutlookCalendar.Current(promptedCall?.Owner, settings.RecordMode == "voice" && promptedCall == null, DateTimeOffset.Now).FirstOrDefault() : null;
-        var title = note?.Meta.Title ?? promptedTitle ?? await Ask("Record Voice · Tell everyone you are recording.", calendar?.Title ?? "Meeting"); if (title == null) return;
+        var title = note?.Meta.Title ?? promptedTitle ?? await Ask("Record " + (pickedVideo != null ? "Screen" : "Voice") + " · Tell everyone you are recording.", calendar?.Title ?? "Meeting"); if (title == null) return;
         await RunJob(async () =>
         {
             Player.MediaPlayer?.Pause(); var meta = note == null ? new MeetingMeta { Title = title, Mode = pickedVideo != null ? "screen" : "voice", StartedAt = DateTimeOffset.Now } : new MeetingMeta { Id = note.Meta.Id, Title = note.Meta.Title, Note = true, GroupID = note.Meta.GroupID, Confidential = note.Meta.Confidential, Mode = pickedVideo != null ? "screen" : "voice", StartedAt = DateTimeOffset.Now };
             if (note == null) { meta.App = promptedCall?.AppName; meta.BundleID = promptedCall?.Owner; meta.Attendees = calendar?.Attendees; if (settings.ConfidentialExternal && calendar?.HasExternal == true) meta.Confidential = true; }
-            promptedTitle = null;
+            promptedTitle = null; promptedMode = null; recordingVideoError = null;
             var folder = Path.Combine(AppSettings.Support, "Recording", meta.Id); if (Directory.Exists(folder)) throw new IOException("An unfinished recording with this identity exists. Recover it before recording again.");
             Directory.CreateDirectory(folder); Workspace.WriteMeta(folder, meta); var scope = await recorder.StartAsync(folder, promptedCall?.ProcessId); recordingCall = promptedCall; promptedCall = null; detector.RecordingStarted(); recordingFolder = folder;
-            video = pickedVideo;
+            desktop.SetRecording(true); video = pickedVideo;
             if (video != null)
             {
                 try { await video.StartAsync(folder, recorder.RecordingClock); meta.VideoOffset = video.Offset; Workspace.WriteMeta(folder, meta); }
-                catch (Exception ex) { await video.DisposeAsync(); video = null; Status.Message = "Video failed; audio continues: " + ex.Message; }
+                catch (Exception ex) { await video.DisposeAsync(); video = null; recordingVideoError = ex.Message; Status.Message = "Video failed; audio continues: " + ex.Message; }
             }
             Player.IsEnabled = false;
             RecordButton.IsEnabled = false; StopButton.IsEnabled = MuteButton.IsEnabled = true; Status.Message = "Recording · Microphone and " + scope;
@@ -220,11 +223,11 @@ public sealed partial class MainWindow : Window
         await RunJob(async () =>
         {
             var staged = recordingFolder; detector.StoppedByHand(recordingCall?.AppName, DateTimeOffset.Now); recordingCall = null; Status.Message = "Finishing audio…";
-            string? videoFailure = null;
+            string? videoFailure = recordingVideoError; recordingVideoError = null;
             if (video != null) try { await video.StopCaptureAsync(); } catch (Exception ex) { videoFailure = ex.Message; }
             await recorder.StopAsync();
             if (video != null) { try { if (videoFailure == null) await video.MuxAsync(staged); } catch (Exception ex) { videoFailure = ex.Message; } finally { await video.DisposeAsync(); video = null; } }
-            Player.IsEnabled = true; var meta = Workspace.ReadMeta(staged)!; meta.EndedAt = DateTimeOffset.Now; Workspace.WriteMeta(staged, meta);
+            desktop.SetRecording(false); Player.IsEnabled = true; var meta = Workspace.ReadMeta(staged)!; meta.EndedAt = DateTimeOffset.Now; Workspace.WriteMeta(staged, meta);
             Directory.CreateDirectory(workspace.Root); var existing = meta.Note == true ? workspace.Find(meta.Id) : null; string target;
             if (existing != null)
             {
@@ -329,6 +332,7 @@ public sealed partial class MainWindow : Window
         if (polling) return; polling = true;
         try
         {
+            WindowCapture.Observe();
             var candidates = await Task.Run(AudioSessions.Capture); var playing = await Task.Run(AudioSessions.Playing);
             detector.AutoStopAfter = Math.Max(5, settings.AutoStopSeconds);
             var actions = detector.Poll(candidates, DateTimeOffset.Now, recorder.IsRecording ? new(recordingCall?.AppName, recordingCall != null) : null, promptedCall?.AppName, stopDialog != null,
@@ -355,7 +359,8 @@ public sealed partial class MainWindow : Window
                     if (promptedCall == null) continue;
                     if (action.Kind == "recordWithoutAsking") { Record_Click(this, new()); continue; }
                     var title = new TextBox { Header = "Title", Text = promptedCall.AppName + " meeting" };
-                    callDialog = new() { Title = "Record this meeting?", Content = title, PrimaryButtonText = "Record Voice", SecondaryButtonText = "Always Record", CloseButtonText = "Not now", XamlRoot = Content.XamlRoot };
+                    var modes = new ComboBox { Header = "Record", ItemsSource = new[] { "screen", "voice" }, SelectedItem = settings.AppModes.GetValueOrDefault(promptedCall.Owner) ?? "screen" }; var card = new StackPanel { Spacing = 12 }; card.Children.Add(title); card.Children.Add(modes);
+                    callDialog = new() { Title = "Record this meeting?", Content = card, PrimaryButtonText = "Record", SecondaryButtonText = "Always Record", CloseButtonText = "Not now", XamlRoot = Content.XamlRoot };
                     var app = promptedCall; var dialog = callDialog;
                     _ = dialog.ShowAsync().AsTask().ContinueWith(t => DispatcherQueue.TryEnqueue(() =>
                     {
@@ -363,7 +368,7 @@ public sealed partial class MainWindow : Window
                         if (t.Status != TaskStatus.RanToCompletion || t.Result == ContentDialogResult.None) { detector.Decline(app.AppName, DateTimeOffset.Now); promptedCall = null; }
                         else
                         {
-                            promptedCall = app; promptedTitle = title.Text;
+                            promptedCall = app; promptedTitle = title.Text; promptedMode = modes.SelectedItem?.ToString() ?? "screen"; settings.AppModes[app.Owner] = promptedMode; settings.Save();
                             if (t.Result == ContentDialogResult.Secondary) { settings.AlwaysRecord.Add(app.Owner); settings.Save(); }
                             Record_Click(this, new());
                         }
@@ -433,6 +438,6 @@ public sealed partial class MainWindow : Window
         if (!string.IsNullOrWhiteSpace(toolPath.Text)) settings.ToolPaths[settings.SummaryProvider] = toolPath.Text; else settings.ToolPaths.Remove(settings.SummaryProvider);
         settings.AutoSummarise = autoSummary.IsChecked == true; settings.SeparateSpeakers = separate.IsChecked == true; settings.TitleFromCalendar = calendarTitles.IsChecked == true; settings.ConfidentialExternal = external.IsChecked == true; settings.AskAnyApp = anyApp.IsChecked == true;
         settings.BriefingMode = briefingMode.SelectedItem?.ToString() ?? "request"; settings.BriefingVoiceThai = (thaiVoice.SelectedItem as VoiceInformation)?.Id; settings.BriefingVoiceEnglish = (englishVoice.SelectedItem as VoiceInformation)?.Id; settings.CompressAudio = compress.IsChecked == true; settings.KeepVideoDays = (int)(double.IsNaN(videoDays.Value) ? 90 : videoDays.Value); settings.KeepAudioDays = (int)(double.IsNaN(audioDays.Value) ? 0 : audioDays.Value); settings.DriveUploadText = uploadText.IsChecked == true; settings.DriveUploadMedia = uploadMedia.IsChecked == true; settings.SyncFolderPerGroup = perGroup.IsChecked == true;
-        settings.RecordMode = mode.SelectedItem?.ToString() ?? "screen"; settings.Save(); workspace = new(settings.WorkspacePath); DesktopIntegration.SetStartup(startup.IsChecked == true); Refresh();
+        settings.RecordMode = mode.SelectedItem?.ToString() ?? "screen"; settings.Save(); RecordButton.Label = settings.RecordMode == "screen" ? "Record Screen" : "Record Voice"; workspace = new(settings.WorkspacePath); DesktopIntegration.SetStartup(startup.IsChecked == true); Refresh();
     }
 }
