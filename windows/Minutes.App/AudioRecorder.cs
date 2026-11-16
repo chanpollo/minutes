@@ -57,13 +57,16 @@ public sealed class AudioRecorder : IDisposable
         if (IsRecording) throw new InvalidOperationException("Already recording"); Directory.CreateDirectory(directory);
         try
         {
-            clock.Restart(); mic = new(new WasapiCapture(), Path.Combine(directory, "me.capture.wav"), clock);
+            clock.Restart(); IWaveIn microphone; var aec = false;
+            try { var configured = await ProcessLoopbackCapture.MicrophoneAsync(); microphone = configured.Capture; aec = configured.Aec; }
+            catch (Exception e) when (e is System.Runtime.InteropServices.COMException or TimeoutException or InvalidOperationException) { microphone = new WasapiCapture(); }
+            mic = new(microphone, Path.Combine(directory, "me.capture.wav"), clock);
             IWaveIn call;
             var scope = "Whole-system audio";
             try { call = processId is { } pid ? await ProcessLoopbackCapture.CreateAsync(pid) : new WasapiLoopbackCapture(); if (processId != null) scope = "Meeting app audio"; }
             catch (Exception e) when (e is System.Runtime.InteropServices.COMException or PlatformNotSupportedException or TimeoutException) { call = new WasapiLoopbackCapture(); }
             others = new(call, Path.Combine(directory, "others.capture.wav"), clock);
-            mic.Start(); others.Start(); folder = directory; return scope;
+            mic.Start(); others.Start(); folder = directory; return scope + (aec ? " · Speaker echo cancellation" : "");
         }
         catch { DisposeTracks(); clock.Stop(); throw; }
     }

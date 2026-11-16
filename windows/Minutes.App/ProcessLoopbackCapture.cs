@@ -8,13 +8,32 @@ namespace Minutes.App;
 internal sealed class ProcessLoopbackCapture : IWaveIn
 {
     private readonly AudioClient client;
+    private readonly bool loopback;
     private readonly EventWaitHandle ready = new(false, EventResetMode.AutoReset);
     private Thread? thread;
     private volatile bool stopping;
     public WaveFormat WaveFormat { get; set; } = new(16000, 16, 1);
     public event EventHandler<WaveInEventArgs>? DataAvailable;
     public event EventHandler<StoppedEventArgs>? RecordingStopped;
-    private ProcessLoopbackCapture(AudioClient client) { this.client = client; }
+    private ProcessLoopbackCapture(AudioClient client, WaveFormat? format = null, bool loopback = true) { this.client = client; this.loopback = loopback; if (format != null) WaveFormat = format; }
+    public static async Task<(IWaveIn Capture, bool Aec)> MicrophoneAsync()
+    {
+        var device = Windows.Media.Devices.MediaDevice.GetDefaultAudioCaptureId(Windows.Media.Devices.AudioDeviceRole.Default);
+        var speakers = false;
+        using (var enumerator = new MMDeviceEnumerator()) using (var output = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Console))
+        {
+            if (output.Properties.Contains(PropertyKeys.PKEY_AudioEndpoint_FormFactor)) speakers = Convert.ToUInt32(output.Properties[PropertyKeys.PKEY_AudioEndpoint_FormFactor].Value) is 1 or 2;
+        }
+        var aec = false;
+        if (speakers)
+        {
+            var effects = Windows.Media.Effects.AudioEffectsManager.CreateAudioCaptureEffectsManager(device, Windows.Media.Capture.MediaCategory.Communications, Windows.Media.AudioProcessing.Default);
+            aec = effects.GetAudioCaptureEffects().Any(e => e.AudioEffectType == Windows.Media.Effects.AudioEffectType.AcousticEchoCancellation);
+        }
+        var properties = new AudioClientProperties { cbSize = (uint)Marshal.SizeOf<AudioClientProperties>(), eCategory = aec ? AudioStreamCategory.Communications : AudioStreamCategory.Other, Options = aec ? AudioClientStreamOptions.None : AudioClientStreamOptions.Raw };
+        var client = await AudioClient.ActivateAsync(device, properties).WaitAsync(TimeSpan.FromSeconds(15));
+        try { return (new ProcessLoopbackCapture(client, client.MixFormat.AsStandardWaveFormat(), false), aec); } catch { client.Dispose(); throw; }
+    }
     public static async Task<ProcessLoopbackCapture> CreateAsync(uint processId)
     {
         if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 20348)) throw new PlatformNotSupportedException("Process loopback needs Windows build 20348 or later");
@@ -39,7 +58,7 @@ internal sealed class ProcessLoopbackCapture : IWaveIn
     public void StartRecording()
     {
         if (thread != null) throw new InvalidOperationException("Already started");
-        client.Initialize(AudioClientShareMode.Shared, AudioClientStreamFlags.Loopback | AudioClientStreamFlags.EventCallback, 0, 0, WaveFormat, Guid.Empty);
+        client.Initialize(AudioClientShareMode.Shared, (loopback ? AudioClientStreamFlags.Loopback : 0) | AudioClientStreamFlags.EventCallback, 0, 0, WaveFormat, Guid.Empty);
         client.SetEventHandle(ready.SafeWaitHandle.DangerousGetHandle()); var capture = client.AudioCaptureClient; client.Start();
         thread = new Thread(() =>
         {
