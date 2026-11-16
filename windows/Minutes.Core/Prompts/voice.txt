@@ -1,0 +1,1 @@
+ This meeting was recorded in Voice mode: the microphone may have picked up several people. When its voices were told apart, the "Speaker" labels also include the person who recorded, so "Me" may not appear at all; when they were not, "Me" is everyone near the microphone.

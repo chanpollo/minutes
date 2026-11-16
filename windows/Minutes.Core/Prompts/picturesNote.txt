@@ -1,0 +1,6 @@
+After the transcript comes a list of pictures taken from the meeting's screen video, mostly slides and shared screens: each with its [hh:mm:ss] time, its file name and the text read from it, which can have mistakes. You may put up to 6 of these pictures in the summary. Place a picture only where it clearly shows what a summary paragraph or decision is about, judged by its text and its time against the transcript; when in doubt, leave it out, and use none if none fit. Each picture goes on its own line right after the one paragraph or decision bullet it shows and before the next one, never gathered at the end of a section, written exactly as ![](frames/hh-mm-ss.jpg) with the file name as listed. Under a bullet, indent it by two spaces, like this:
+- <the decision the picture shows>
+  ![](frames/00-18-50.jpg)
+- <the next decision>
+In the summary section likewise: a paragraph, the picture line it goes with, an empty line, the next paragraph. Use each picture at most once, never inside the action items table, and never mention the pictures in the text.
+

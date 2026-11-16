@@ -1,0 +1,4 @@
+
+
+An "Invited:" line may follow the first line with the names on the calendar invitation. The invited list only helps you spell names heard in the transcript; it never makes someone an owner or attendee by itself.
+
