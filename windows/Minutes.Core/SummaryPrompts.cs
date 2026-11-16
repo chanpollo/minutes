@@ -10,7 +10,7 @@ public static class SummaryPrompts
     public static string Resource(string name)
     {
         using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream($"Minutes.Core.Prompts.{name}.txt") ?? throw new IOException("Missing prompt " + name);
-        using var read = new StreamReader(stream); return read.ReadToEnd();
+        using var read = new StreamReader(stream); return read.ReadToEnd().Replace("\r\n","\n",StringComparison.Ordinal);
     }
     private static string Sections(bool thai)
     {
