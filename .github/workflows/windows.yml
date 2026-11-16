@@ -2,9 +2,6 @@ name: Windows
 on:
   push:
     branches: [feature/windows-app]
-  pull_request:
-    branches: [main]
-    paths: ['windows/**', '.github/workflows/windows.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -35,9 +32,18 @@ jobs:
       - name: Publish unsigned portable app
         working-directory: windows
         run: msbuild Minutes.App/Minutes.App.csproj -t:Publish -p:Configuration=Release -p:Platform=x64 -p:PublishDir="${{ github.workspace }}/windows/artifacts/Minutes/"
+      - name: Restore speech engine cache
+        uses: actions/cache@v4
+        with:
+          path: windows/.tool-cache
+          key: windows-x64-speech-${{ hashFiles('windows/scripts/Bundle-Tools.ps1') }}
       - name: Bundle local speech engines
         shell: pwsh
         run: ./windows/scripts/Bundle-Tools.ps1 -Destination windows/artifacts/Minutes
+      - name: Stamp build identity
+        shell: pwsh
+        run: |
+          @{version=(Get-Content VERSION -Raw).Trim(); build="$env:GITHUB_RUN_NUMBER"; commit="$env:GITHUB_SHA"; builtUtc=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json | Set-Content windows/artifacts/Minutes/build.json -Encoding utf8
       - name: Include validation guide
         shell: pwsh
         run: Copy-Item windows/docs/TESTING.md windows/artifacts/Minutes/TESTING.md

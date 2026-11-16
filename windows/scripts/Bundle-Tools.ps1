@@ -3,6 +3,20 @@ $ErrorActionPreference = 'Stop'
 $tools = Join-Path $Destination 'tools'
 $licenses = Join-Path $Destination 'licenses'
 New-Item -ItemType Directory -Force $tools, $licenses | Out-Null
+function Test-SpeechTools {
+  foreach ($name in @('whisper-cli.exe', 'sherpa-onnx-offline-speaker-diarization.exe', 'flac.exe')) {
+    & (Join-Path $tools $name) --help *> $null
+    if ($LASTEXITCODE -notin @(0, 1)) { throw "$name failed to load: $LASTEXITCODE" }
+  }
+}
+$cache = Join-Path $env:GITHUB_WORKSPACE 'windows/.tool-cache'
+if (Test-Path "$cache/tools/flac.exe") {
+  Copy-Item "$cache/tools/*" $tools -Recurse -Force
+  Copy-Item "$cache/licenses/*" $licenses -Recurse -Force
+  Copy-Item windows/docs/THIRD-PARTY.md "$licenses/THIRD-PARTY.md" -Force
+  Test-SpeechTools
+  return
+}
 $work = Join-Path $env:RUNNER_TEMP 'minutes-tools'
 New-Item -ItemType Directory -Force $work | Out-Null
 $whisper = Join-Path $work 'whisper'
@@ -47,7 +61,7 @@ $redist = Get-ChildItem (Join-Path $vs 'VC/Redist/MSVC') -Directory | Sort-Objec
 if ($redist) {
   Get-ChildItem (Join-Path $redist.FullName 'x64') -Recurse -File -Filter '*.dll' | Where-Object { $_.Directory.Name -match 'Microsoft.VC.*.(CRT|OpenMP)$' } | Copy-Item -Destination $tools -Force
 }
-foreach ($name in @('whisper-cli.exe', 'sherpa-onnx-offline-speaker-diarization.exe', 'flac.exe')) {
-  & (Join-Path $tools $name) --help *> (Join-Path $work "$name-help.txt")
-  if ($LASTEXITCODE -notin @(0, 1)) { throw "$name failed to load: $LASTEXITCODE" }
-}
+Test-SpeechTools
+New-Item -ItemType Directory -Force "$cache/tools", "$cache/licenses" | Out-Null
+Copy-Item "$tools/*" "$cache/tools/" -Recurse -Force
+Copy-Item "$licenses/*" "$cache/licenses/" -Recurse -Force
