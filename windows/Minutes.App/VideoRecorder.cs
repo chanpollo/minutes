@@ -25,6 +25,7 @@ internal sealed class VideoRecorder : IAsyncDisposable
     private TimeSpan? origin, last;
     private Task? encoding;
     private bool stopped;
+    private Exception? captureError;
     private string? screenFile;
     public double Offset { get; private set; }
     private VideoRecorder(GraphicsCaptureItem item, int fps, string quality = "balanced") { this.item = item; this.fps = fps; this.quality = quality; device = CreateDevice(); }
@@ -43,9 +44,11 @@ internal sealed class VideoRecorder : IAsyncDisposable
     {
         screenFile = Path.Combine(folder, "screen.mp4");
         pool = Direct3D11CaptureFramePool.CreateFreeThreaded(device, DirectXPixelFormat.B8G8R8A8UIntNormalized, 3, item.Size);
-        pool.FrameArrived += (_, _) =>
+        pool.FrameArrived += (sender, _) =>
         {
-            var frame = pool.TryGetNextFrame(); if (frame == null) return;
+            Direct3D11CaptureFrame? frame;
+            try { frame = sender.TryGetNextFrame(); } catch (Exception ex) { if (!stopped) captureError = ex; return; }
+            if (frame == null) return;
             if (stopped || last is { } previous && (frame.SystemRelativeTime - previous).TotalSeconds < 1d / fps) { frame.Dispose(); return; }
             if (origin == null) { origin = frame.SystemRelativeTime; Offset = clock.Elapsed.TotalSeconds; first.TrySetResult(); }
             last = frame.SystemRelativeTime; if (!frames.Writer.TryWrite(frame)) frame.Dispose();
@@ -68,6 +71,7 @@ internal sealed class VideoRecorder : IAsyncDisposable
                 }
                 else args.Request.Sample = null;
             }
+            catch (Exception ex) { captureError = ex; args.Request.Sample = null; }
             finally { deferral.Complete(); }
         };
         var directory = await StorageFolder.GetFolderFromPathAsync(folder);
@@ -88,7 +92,7 @@ internal sealed class VideoRecorder : IAsyncDisposable
     public async Task StopCaptureAsync()
     {
         stopped = true; session?.Dispose(); session = null; frames.Writer.TryComplete();
-        try { if (encoding != null) await encoding; } finally { pool?.Dispose(); pool = null; }
+        try { if (encoding != null) await encoding; if (captureError != null) throw new IOException("Screen capture stopped unexpectedly", captureError); } finally { pool?.Dispose(); pool = null; }
     }
     public async Task MuxAsync(string folder)
     {

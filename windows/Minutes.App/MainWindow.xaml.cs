@@ -66,6 +66,11 @@ public sealed partial class MainWindow : Window
                 {
                     var meta = Workspace.ReadMeta(folder); if (meta == null) continue;
                     if (File.Exists(Path.Combine(folder, ".minutes-imported")) && workspace.Find(meta.Id) != null) { try { Directory.Delete(folder, true); } catch (IOException) { } continue; }
+                    if (!Directory.GetFiles(folder).Any(f => new[] { ".wav", ".flac", ".mp4", ".mov" }.Contains(Path.GetExtension(f).ToLowerInvariant())))
+                    {
+                        if (Directory.GetFiles(folder).All(f => Path.GetFileName(f) == "meta.json")) Directory.Delete(folder, true);
+                        continue;
+                    }
                     if (!await Confirm("Recover unfinished recording?", meta.Title + " has audio left from an interrupted session.", "Recover")) continue;
                     var lastWrite = Directory.GetFiles(folder).Where(f => f.EndsWith(".wav", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase)).Select(File.GetLastWriteTimeUtc).DefaultIfEmpty(meta.StartedAt.UtcDateTime).Max();
                     await Task.Run(() => AudioRecorder.Recover(folder)); meta.EndedAt ??= new DateTimeOffset(lastWrite); Workspace.WriteMeta(folder, meta); Directory.CreateDirectory(workspace.Root);
@@ -267,6 +272,7 @@ public sealed partial class MainWindow : Window
             completedFolder = target; failure = videoFailure;
         }, "Recording saved");
         if (completedFolder != null) _ = ProcessMeetingAsync(completedFolder, failure);
+        else if (!recorder.IsRecording) { desktop.SetRecording(false); RecordButton.IsEnabled = true; StopButton.IsEnabled = MuteButton.IsEnabled = false; Player.IsEnabled = true; recordingFolder = null; }
     }
     private async Task ProcessMeetingAsync(string folder, string? videoFailure)
     {
