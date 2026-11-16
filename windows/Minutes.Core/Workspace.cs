@@ -80,7 +80,7 @@ public sealed class Workspace(string root)
     public static string CleanTitle(string title)
     {
         // Windows forbids additional filename characters and trailing dots.
-        var clean = Regex.Replace(title, "[/：:\\\\\n\r\t<>\"|?*]", "-").Trim().TrimEnd('.');
+        var clean = Regex.Replace(title, "[/:\\\\\n\r\t<>\"|?*]", "-").Trim().TrimEnd('.');
         return string.IsNullOrEmpty(clean) ? "Meeting" : string.Concat(System.Globalization.StringInfo.GetTextElementEnumerator(clean).AsElements().Take(80));
     }
     public static string FolderName(string title, DateTimeOffset date) => $"{date.LocalDateTime.ToString("yyyy-MM-dd HHmm", CultureInfo.InvariantCulture)} {CleanTitle(title)}";

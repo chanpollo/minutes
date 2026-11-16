@@ -82,8 +82,8 @@ internal sealed class VideoRecorder : IAsyncDisposable
     }
     public async Task StopCaptureAsync()
     {
-        stopped=true;session?.Dispose();session=null;pool?.Dispose();pool=null;frames.Writer.TryComplete();
-        if(encoding!=null)await encoding;
+        stopped=true;session?.Dispose();session=null;frames.Writer.TryComplete();
+        try{if(encoding!=null)await encoding;}finally{pool?.Dispose();pool=null;}
     }
     public async Task MuxAsync(string folder)
     {

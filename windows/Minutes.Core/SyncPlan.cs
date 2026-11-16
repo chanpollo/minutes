@@ -82,10 +82,18 @@ public sealed class FolderSync(Workspace workspace)
                 state.Path = wanted;
             }
             var destination = SyncPlan.SafePath(root, wanted); Directory.CreateDirectory(destination);
+            workspace.Update(current.Folder,m=>m.Sync=JsonSerializer.SerializeToElement(state,JsonFiles.Options));
+            bool WithdrawIfConfidential()
+            {
+                var latest=workspace.Find(meta.Id);
+                if(latest?.Meta.Confidential!=true)return false;
+                if(Directory.Exists(destination))Directory.Delete(destination,true);
+                workspace.Update(latest.Folder,m=>m.Sync=null);return true;
+            }
             foreach (var name in SyncPlan.Files(current.Folder, meta, options))
             {
                 cancel.ThrowIfCancellationRequested();
-                if (workspace.Find(meta.Id)?.Meta.Confidential == true) throw new IOException("Meeting became confidential; sync stopped");
+                if (WithdrawIfConfidential()) return;
                 var source = SyncPlan.SafePath(current.Folder, name); var target = SyncPlan.SafePath(destination, name);
                 var f = new FileInfo(source); var stamp = new Stamp(f.Length, DateTimeOffset.FromUnixTimeSeconds(new DateTimeOffset(f.LastWriteTimeUtc).ToUnixTimeSeconds()));
                 if (state.Files.TryGetValue(name, out var old) && old == stamp && File.Exists(target)) continue;
@@ -94,9 +102,11 @@ public sealed class FolderSync(Workspace workspace)
                 try { File.Copy(source, part, true); File.Move(part, target, true); }
                 finally { if (File.Exists(part)) File.Delete(part); }
                 state.Files[name] = stamp;
+                if(WithdrawIfConfidential())return;
             }
             foreach (var name in SyncPlan.AudioNames.Select(n => n + ".wav").Where(n => state.Files.ContainsKey(n) && state.Files.ContainsKey(n.Replace(".wav", ".flac")) && !File.Exists(Path.Combine(current.Folder, n))).ToArray())
             { File.Delete(SyncPlan.SafePath(destination, name)); state.Files.Remove(name); }
+            if(WithdrawIfConfidential())return;
             workspace.Update(current.Folder, m => m.Sync = System.Text.Json.JsonSerializer.SerializeToElement(state, JsonFiles.Options));
         }
         finally { gate.Release(); }

@@ -75,6 +75,27 @@ public sealed class AudioRecorder : IDisposable
         finally{clock.Stop();DisposeTracks();folder=null;}
         await Task.Run(()=>{ConvertTrack(Path.Combine(target,"me.capture.wav"),Path.Combine(target,"me.wav"));ConvertTrack(Path.Combine(target,"others.capture.wav"),Path.Combine(target,"others.wav"));});
     }
+    public static void Recover(string folder)
+    {
+        foreach(var name in new[]{"me","others"})
+        {
+            var raw=Path.Combine(folder,name+".capture.wav");if(!File.Exists(raw))continue;
+            using(var file=new FileStream(raw,FileMode.Open,FileAccess.ReadWrite,FileShare.None))
+            using(var read=new BinaryReader(file,System.Text.Encoding.ASCII,true))
+            using(var write=new BinaryWriter(file,System.Text.Encoding.ASCII,true))
+            {
+                if(file.Length<44||new string(read.ReadChars(4))!="RIFF")throw new IOException("The interrupted audio has no WAV header");
+                file.Position=4;write.Write(checked((uint)(file.Length-8)));file.Position=12;
+                while(file.Position+8<=file.Length)
+                {
+                    var tag=new string(read.ReadChars(4));var size=read.ReadUInt32();
+                    if(tag=="data"){file.Position-=4;write.Write(checked((uint)(file.Length-file.Position-4)));break;}
+                    file.Position+=size+(size%2);
+                }
+            }
+            ConvertTrack(raw,Path.Combine(folder,name+".wav"));
+        }
+    }
     private static void ConvertTrack(string raw,string target)
     {
         using(var reader=new AudioFileReader(raw))

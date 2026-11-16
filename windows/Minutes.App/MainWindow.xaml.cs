@@ -34,10 +34,40 @@ public sealed partial class MainWindow : Window
         InitializeComponent();Title="Minutes";
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1440,860));
         workspace=new(settings.WorkspacePath);summaries=new(AppSettings.Support,settings.FindTool);
-        desktop=new(this,()=>Activate(),()=>Record_Click(this,new RoutedEventArgs()),()=>Stop_Click(this,new RoutedEventArgs()),()=>NewNote_Click(this,new RoutedEventArgs()),()=>Settings_Click(this,new RoutedEventArgs()));
+        desktop=new(this,()=>Activate(),()=>{if(recorder.IsRecording)Stop_Click(this,new RoutedEventArgs());else Record_Click(this,new RoutedEventArgs());},()=>Stop_Click(this,new RoutedEventArgs()),()=>NewNote_Click(this,new RoutedEventArgs()),()=>Settings_Click(this,new RoutedEventArgs()),()=>!recorder.IsRecording&&jobs.CurrentCount==1);
         Closed+=(_,_)=>{desktop.Dispose();recorder.Dispose();summaries.Dispose();googleHttp.Dispose();maintenance.Stop();micPoll.Stop();Player.MediaPlayer?.Dispose();};
-        Refresh();Status.Message="Windows preview · voice captures microphone and whole-system audio. See TESTING.md for gaps.";
+        Refresh();Status.Message="Waiting for a meeting";
+        ((FrameworkElement)Content).Loaded+=async(_,_)=>await StartupAsync();
         maintenance.Tick+=async(_,_)=>await RunJob(async()=>{await CleanupAsync();await SyncAllAsync();},"Maintenance complete");maintenance.Start();micPoll.Tick+=async(_,_)=>await PollCallsAsync();micPoll.Start();
+    }
+    private bool started;
+    private async Task StartupAsync()
+    {
+        if(started)return;started=true;
+        await RunJob(async()=>
+        {
+            var staging=Path.Combine(AppSettings.Support,"Recording");
+            if(Directory.Exists(staging))foreach(var folder in Directory.GetDirectories(staging))
+            {
+                var meta=Workspace.ReadMeta(folder);if(meta==null)continue;
+                if(!await Confirm("Recover unfinished recording?",meta.Title+" has audio left from an interrupted session.","Recover"))continue;
+                var lastWrite=Directory.GetFiles(folder).Where(f=>f.EndsWith(".wav",StringComparison.OrdinalIgnoreCase)||f.EndsWith(".mp4",StringComparison.OrdinalIgnoreCase)).Select(File.GetLastWriteTimeUtc).DefaultIfEmpty(meta.StartedAt.UtcDateTime).Max();
+                await Task.Run(()=>AudioRecorder.Recover(folder));meta.EndedAt??=new DateTimeOffset(lastWrite);Workspace.WriteMeta(folder,meta);Directory.CreateDirectory(workspace.Root);
+                var existing=meta.Note==true?workspace.Find(meta.Id):null;
+                if(existing!=null)
+                {
+                    foreach(var file in Directory.GetFiles(folder).Where(f=>Path.GetFileName(f)!="meta.json"))File.Move(file,Path.Combine(existing.Folder,Path.GetFileName(file)),true);
+                    workspace.Update(existing.Folder,m=>{m.StartedAt=meta.StartedAt;m.EndedAt=meta.EndedAt;m.Mode=meta.Mode;m.App=meta.App;m.BundleID=meta.BundleID;m.VideoOffset=meta.VideoOffset;});Directory.Delete(folder,true);
+                }
+                else{var target=Workspace.UniquePath(workspace.Root,Workspace.FolderName(meta.Title,meta.StartedAt));Directory.Move(folder,target);}
+            }
+            await CleanupAsync();
+            var models=new ModelStore(Path.Combine(AppSettings.Support,"models"));
+            if(ModelStore.All.Where(m=>settings.SeparateSpeakers||m.Transcription).Any(m=>!models.Present(m)))await models.DownloadAsync(settings.SeparateSpeakers,new Progress<string>(s=>Status.Message=s));
+            foreach(var m in workspace.Meetings().Where(m=>!m.Meta.IsNote&&m.Meta.TranscriptError==null&&!File.Exists(Path.Combine(m.Folder,"transcript.md"))&&new[]{"me.wav","others.wav","me.flac","others.flac"}.Any(n=>File.Exists(Path.Combine(m.Folder,n)))))
+                await new TranscriptionService(settings).TranscribeAsync(m.Folder,new Progress<string>(s=>Status.Message=s));
+            await SyncAllAsync();
+        },"Waiting for a meeting");
     }
     private void Refresh()
     {
@@ -64,7 +94,7 @@ public sealed partial class MainWindow : Window
     private async Task RunJob(Func<Task> work,string success)
     {
         if(!await jobs.WaitAsync(0)){Status.Message="Another task is running. Wait for it to finish.";return;}
-        try{Status.Severity=InfoBarSeverity.Informational;await work();Status.Message=success;Status.Severity=InfoBarSeverity.Success;}
+        try{Status.Severity=InfoBarSeverity.Informational;await work();Status.Message=success;Status.Severity=recorder.IsRecording?InfoBarSeverity.Informational:InfoBarSeverity.Success;}
         catch(Exception e){Status.Message=e.Message;Status.Severity=InfoBarSeverity.Error;}
         finally{jobs.Release();Refresh();}
     }
@@ -102,7 +132,14 @@ public sealed partial class MainWindow : Window
     }
     private async void Confidential_Click(object sender,RoutedEventArgs e)
     {
-        if(selected==null)return;await RunJob(async()=>{var meta=workspace.Update(selected.Folder,m=>{m.Confidential=Confidential.IsChecked==true;m.SentAnyway=null;});selected=new(selected.Folder,meta);if(meta.Confidential==true)await WithdrawAsync(selected);},"Confidential setting saved");
+        if(selected==null)return;var meeting=selected;
+        try
+        {
+            var meta=workspace.Update(meeting.Folder,m=>{m.Confidential=Confidential.IsChecked==true;m.SentAnyway=null;});
+            if(selected?.Meta.Id==meta.Id)selected=new(meeting.Folder,meta);
+            if(meta.Confidential==true)await WithdrawAsync(new(meeting.Folder,meta));Status.Message="Confidential setting saved";
+        }
+        catch(Exception ex){Status.Message="Confidential setting saved; withdrawal needs attention: "+ex.Message;Status.Severity=InfoBarSeverity.Error;}
     }
     private async void Pin_Click(object sender,RoutedEventArgs e)
     {if(selected==null)return;await RunJob(()=>{var m=workspace.Update(selected.Folder,m=>{m.PinnedAt=m.PinnedAt==null?DateTimeOffset.Now:null;if(m.PinnedAt!=null)m.ArchivedAt=null;});Show(new(selected.Folder,m));return Task.CompletedTask;},"Pin updated");}
@@ -142,7 +179,12 @@ public sealed partial class MainWindow : Window
         if(!recorder.IsRecording||recordingFolder==null)return;
         await RunJob(async()=>
         {
-            var staged=recordingFolder;detector.StoppedByHand(recordingCall?.AppName,DateTimeOffset.Now);recordingCall=null;Status.Message="Finishing audio…";if(video!=null)await video.StopCaptureAsync();await recorder.StopAsync();if(video!=null){try{await video.MuxAsync(staged);}finally{await video.DisposeAsync();video=null;}}Player.IsEnabled=true;var meta=Workspace.ReadMeta(staged)!;meta.EndedAt=DateTimeOffset.Now;Workspace.WriteMeta(staged,meta);
+            var staged=recordingFolder;detector.StoppedByHand(recordingCall?.AppName,DateTimeOffset.Now);recordingCall=null;Status.Message="Finishing audio…";
+            string? videoFailure=null;
+            if(video!=null)try{await video.StopCaptureAsync();}catch(Exception ex){videoFailure=ex.Message;}
+            await recorder.StopAsync();
+            if(video!=null){try{if(videoFailure==null)await video.MuxAsync(staged);}catch(Exception ex){videoFailure=ex.Message;}finally{await video.DisposeAsync();video=null;}}
+            Player.IsEnabled=true;var meta=Workspace.ReadMeta(staged)!;meta.EndedAt=DateTimeOffset.Now;Workspace.WriteMeta(staged,meta);
             Directory.CreateDirectory(workspace.Root);var existing=meta.Note==true?workspace.Find(meta.Id):null;string target;
             if(existing!=null)
             {
@@ -153,7 +195,7 @@ public sealed partial class MainWindow : Window
             recordingFolder=null;RecordButton.IsEnabled=true;StopButton.IsEnabled=MuteButton.IsEnabled=false;MuteButton.IsChecked=false;Show(new(target,meta));
             Status.Message="Transcribing…";await new TranscriptionService(settings).TranscribeAsync(target,new Progress<string>(s=>Status.Message=s));
             if(settings.AutoSummarise&&meta.Confidential!=true&&settings.SummaryProvider!="off")await summaries.SummarizeAsync(target,CurrentModel(),settings.SummaryLanguage);
-            await SyncMeetingAsync(new(target,Workspace.ReadMeta(target)!));Show(new(target,Workspace.ReadMeta(target)!));
+            await SyncMeetingAsync(new(target,Workspace.ReadMeta(target)!));Show(new(target,Workspace.ReadMeta(target)!));if(videoFailure!=null)throw new IOException("Transcript ready, but video was not recorded: "+videoFailure);
         },"Transcript ready");
     }
     private void Mute_Click(object sender,RoutedEventArgs e)=>recorder.Mute(MuteButton.IsChecked==true);

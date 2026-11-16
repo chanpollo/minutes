@@ -55,7 +55,7 @@ public sealed class GoogleDriveSync(Workspace workspace,GoogleOAuth auth,HttpCli
                 else if(relative.StartsWith("attachments/",StringComparison.Ordinal))folderID=state.AttachmentsFolderID??=await FolderAsync("attachments",state.FolderID,cancel);
                 var id=await UploadAsync(file,folderID,old?.Id,cancel);state.Files[relative]=new(id,info.Length,modified);Save();
             }
-            if(workspace.Find(meta.Id)?.Meta.Confidential==true)await WithdrawAsync(workspace.Find(meta.Id)!,cancel);
+            if(workspace.Find(meta.Id)?.Meta.Confidential==true){await WithdrawAsync(workspace.Find(meta.Id)!,cancel);return;}
             foreach(var stale in SyncPlan.AudioNames.Select(n=>n+".wav").Where(n=>state.Files.ContainsKey(n)&&state.Files.ContainsKey(n.Replace(".wav",".flac"))&&!File.Exists(Path.Combine(current.Folder,n))).ToArray())
             {await TrashAsync(state.Files[stale].Id,true,cancel);state.Files.Remove(stale);Save();}
         }

@@ -12,10 +12,11 @@ internal sealed class DesktopIntegration : IDisposable
     private readonly SubclassProc callback;
     private readonly Action show,record,stop,note,settings;
     private bool exiting;
+    private readonly Func<bool> canQuit;
     private NotifyIconData icon;
-    public DesktopIntegration(Window window,Action show,Action record,Action stop,Action note,Action settings)
+    public DesktopIntegration(Window window,Action show,Action record,Action stop,Action note,Action settings,Func<bool> canQuit)
     {
-        hwnd=WinRT.Interop.WindowNative.GetWindowHandle(window);this.show=show;this.record=record;this.stop=stop;this.note=note;this.settings=settings;
+        hwnd=WinRT.Interop.WindowNative.GetWindowHandle(window);this.show=show;this.record=record;this.stop=stop;this.note=note;this.settings=settings;this.canQuit=canQuit;
         callback=OnMessage;if(!SetWindowSubclass(hwnd,callback,1,0))throw new System.ComponentModel.Win32Exception();
         RegisterHotKey(hwnd,1,0x0001|0x0002|0x4000,0x52);
         icon=new NotifyIconData{Size=(uint)Marshal.SizeOf<NotifyIconData>(),Window=hwnd,Id=1,Flags=1|2|4,CallbackMessage=0x8001,Icon=LoadIcon(0,32512),Tip="Minutes",Info="",InfoTitle=""};Shell_NotifyIcon(0,ref icon);
@@ -35,7 +36,7 @@ internal sealed class DesktopIntegration : IDisposable
                 {
                     AppendMenu(menu,0,1,"Open Minutes");AppendMenu(menu,0,2,"Record Voice");AppendMenu(menu,0,3,"Stop Recording");AppendMenu(menu,0,4,"New Note");AppendMenu(menu,0,5,"Settings…");AppendMenu(menu,0x800,0,"");AppendMenu(menu,0,6,"Quit Minutes");
                     GetCursorPos(out var point);SetForegroundWindow(hwnd);var command=TrackPopupMenu(menu,0x100|0x2,point.X,point.Y,0,hwnd,0);
-                    switch(command){case 1:show();break;case 2:record();break;case 3:stop();break;case 4:note();break;case 5:settings();break;case 6:exiting=true;PostMessage(hwnd,0x0010,0,0);break;}
+                    switch(command){case 1:show();break;case 2:record();break;case 3:stop();break;case 4:note();break;case 5:settings();break;case 6:if(canQuit()){exiting=true;PostMessage(hwnd,0x0010,0,0);}else show();break;}
                 }
                 finally{DestroyMenu(menu);}
             }

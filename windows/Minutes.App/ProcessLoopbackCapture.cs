@@ -22,16 +22,19 @@ internal sealed class ProcessLoopbackCapture : IWaveIn
         var blob=Marshal.AllocCoTaskMem(Marshal.SizeOf<ActivationParameters>());
         var variant=Marshal.AllocCoTaskMem(Marshal.SizeOf<BlobVariant>());
         var completion=new Completion();
+        var releaseScheduled=false;
         try
         {
             Marshal.StructureToPtr(parameters,blob,false);Marshal.StructureToPtr(new BlobVariant{Type=65,Size=Marshal.SizeOf<ActivationParameters>(),Data=blob},variant,false);
             var iid=typeof(IAudioClient).GUID;
             Marshal.ThrowExceptionForHR(ActivateAudioInterfaceAsync("VAD\\Process_Loopback",ref iid,variant,completion,out var operation));
             // Activation storage and handler must live until the callback completes.
+            _=completion.Result.Task.ContinueWith(_=>{GC.KeepAlive(operation);Marshal.FreeCoTaskMem(variant);Marshal.FreeCoTaskMem(blob);},TaskScheduler.Default);
+            releaseScheduled=true;
             var activated=await completion.Result.Task.WaitAsync(TimeSpan.FromSeconds(15));GC.KeepAlive(operation);
             return new(new AudioClient((IAudioClient)activated));
         }
-        finally{GC.KeepAlive(completion);Marshal.FreeCoTaskMem(variant);Marshal.FreeCoTaskMem(blob);}
+        finally{GC.KeepAlive(completion);if(!releaseScheduled){Marshal.FreeCoTaskMem(variant);Marshal.FreeCoTaskMem(blob);}}
     }
     public void StartRecording()
     {
