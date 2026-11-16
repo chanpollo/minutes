@@ -13,7 +13,10 @@ public static class CalendarRanking
     public static bool HasCallLink(CalendarEvent e) => CallHosts.Any(h => e.Text.Contains(h, StringComparison.OrdinalIgnoreCase));
     public static string[] Hosts(string? app) => app?.ToLowerInvariant() switch
     {
-        "ms-teams" or "teams" => ["teams.microsoft.com", "teams.live.com"], "zoom" => ["zoom.us"],
-        "webex" or "ciscocollabhost" => ["webex.com"], "chrome" or "msedge" or "firefox" or "brave" or "arc" => ["meet.google.com"], _ => []
+        "ms-teams" or "teams" => ["teams.microsoft.com", "teams.live.com"],
+        "zoom" => ["zoom.us"],
+        "webex" or "ciscocollabhost" => ["webex.com"],
+        "chrome" or "msedge" or "firefox" or "brave" or "arc" => ["meet.google.com"],
+        _ => []
     };
 }

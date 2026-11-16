@@ -12,40 +12,40 @@ public sealed class ModelStore(string modelsDir)
         new("sherpa-onnx-pyannote-segmentation-3-0/model.onnx","https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2",5992913,"220ad67ca923bef2fa91f2390c786097bf305bceb5e261d4af67b38e938e1079",false,"24615ee884c897d9d2ba09bb4d30da6bb1b15e685065962db5b02e76e4996488","sherpa-onnx-pyannote-segmentation-3-0/model.onnx"),
         new("3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx","https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx",28281164,"aa3cfc16963a10586a9393f5035d6d6b57e98d358b347f80c2a30bf4f00ceba2",false)
     ];
-    public bool Present(SpeechModel model) => System.IO.File.Exists(Path.Combine(modelsDir,model.File)) && new FileInfo(Path.Combine(modelsDir,model.File)).Length == model.Size;
-    public static async Task VerifyAsync(string file,string expected,CancellationToken cancel=default)
+    public bool Present(SpeechModel model) => System.IO.File.Exists(Path.Combine(modelsDir, model.File)) && new FileInfo(Path.Combine(modelsDir, model.File)).Length == model.Size;
+    public static async Task VerifyAsync(string file, string expected, CancellationToken cancel = default)
     {
-        await using var stream=System.IO.File.OpenRead(file);var hash=Convert.ToHexString(await SHA256.HashDataAsync(stream,cancel)).ToLowerInvariant();
-        if(hash!=expected)throw new InvalidDataException(Path.GetFileName(file)+" is damaged (checksum mismatch)");
+        await using var stream = System.IO.File.OpenRead(file); var hash = Convert.ToHexString(await SHA256.HashDataAsync(stream, cancel)).ToLowerInvariant();
+        if (hash != expected) throw new InvalidDataException(Path.GetFileName(file) + " is damaged (checksum mismatch)");
     }
-    public async Task DownloadAsync(bool speakers=true,IProgress<string>? progress=null,CancellationToken cancel=default)
+    public async Task DownloadAsync(bool speakers = true, IProgress<string>? progress = null, CancellationToken cancel = default)
     {
-        using var client=new HttpClient{Timeout=TimeSpan.FromHours(2)};Directory.CreateDirectory(modelsDir);
-        foreach(var model in All.Where(m=>speakers||m.Transcription).Where(m=>!Present(m)))
+        using var client = new HttpClient { Timeout = TimeSpan.FromHours(2) }; Directory.CreateDirectory(modelsDir);
+        foreach (var model in All.Where(m => speakers || m.Transcription).Where(m => !Present(m)))
         {
-            var part=Path.Combine(modelsDir,Path.GetFileName(new Uri(model.Source).AbsolutePath)+".part");var scratch=Path.Combine(modelsDir,".extract-"+Guid.NewGuid());
+            var part = Path.Combine(modelsDir, Path.GetFileName(new Uri(model.Source).AbsolutePath) + ".part"); var scratch = Path.Combine(modelsDir, ".extract-" + Guid.NewGuid());
             try
             {
-                progress?.Report("Downloading "+model.File);
-                using(var response=await client.GetAsync(model.Source,HttpCompletionOption.ResponseHeadersRead,cancel))
+                progress?.Report("Downloading " + model.File);
+                using (var response = await client.GetAsync(model.Source, HttpCompletionOption.ResponseHeadersRead, cancel))
                 {
-                    response.EnsureSuccessStatusCode();await using var source=await response.Content.ReadAsStreamAsync(cancel);await using var output=System.IO.File.Create(part);
-                    var buffer=new byte[1024*1024];long done=0;int n;
-                    while((n=await source.ReadAsync(buffer,cancel))>0){await output.WriteAsync(buffer.AsMemory(0,n),cancel);done+=n;progress?.Report($"Downloading {Path.GetFileName(model.File)} · {done/1000000} MB");}
+                    response.EnsureSuccessStatusCode(); await using var source = await response.Content.ReadAsStreamAsync(cancel); await using var output = System.IO.File.Create(part);
+                    var buffer = new byte[1024 * 1024]; long done = 0; int n;
+                    while ((n = await source.ReadAsync(buffer, cancel)) > 0) { await output.WriteAsync(buffer.AsMemory(0, n), cancel); done += n; progress?.Report($"Downloading {Path.GetFileName(model.File)} · {done / 1000000} MB"); }
                 }
-                var install=part;
-                if(model.ArchiveSha256!=null)
+                var install = part;
+                if (model.ArchiveSha256 != null)
                 {
-                    await VerifyAsync(part,model.ArchiveSha256,cancel);Directory.CreateDirectory(scratch);
-                    var result=await ToolProcess.RunAsync("tar",["-xjf",part,"-C",scratch,model.ArchiveMember!],"",modelsDir,TimeSpan.FromMinutes(2),cancel);
-                    if(result.Status!=0)throw new IOException("Model archive could not be unpacked: "+result.ErrorTail);
-                    install=Path.Combine(scratch,model.ArchiveMember!);
+                    await VerifyAsync(part, model.ArchiveSha256, cancel); Directory.CreateDirectory(scratch);
+                    var result = await ToolProcess.RunAsync("tar", ["-xjf", part, "-C", scratch, model.ArchiveMember!], "", modelsDir, TimeSpan.FromMinutes(2), cancel);
+                    if (result.Status != 0) throw new IOException("Model archive could not be unpacked: " + result.ErrorTail);
+                    install = Path.Combine(scratch, model.ArchiveMember!);
                 }
-                await VerifyAsync(install,model.Sha256,cancel);
-                if(new FileInfo(install).Length!=model.Size)throw new InvalidDataException("Model size mismatch");
-                var target=Path.Combine(modelsDir,model.File);Directory.CreateDirectory(Path.GetDirectoryName(target)!);System.IO.File.Move(install,target,true);
+                await VerifyAsync(install, model.Sha256, cancel);
+                if (new FileInfo(install).Length != model.Size) throw new InvalidDataException("Model size mismatch");
+                var target = Path.Combine(modelsDir, model.File); Directory.CreateDirectory(Path.GetDirectoryName(target)!); System.IO.File.Move(install, target, true);
             }
-            finally{if(System.IO.File.Exists(part))System.IO.File.Delete(part);if(Directory.Exists(scratch))Directory.Delete(scratch,true);}
+            finally { if (System.IO.File.Exists(part)) System.IO.File.Delete(part); if (Directory.Exists(scratch)) Directory.Delete(scratch, true); }
         }
     }
 }

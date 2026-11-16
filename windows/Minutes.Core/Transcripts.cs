@@ -88,10 +88,10 @@ public static class Transcripts
             return $"Speaker {numbers[key]}";
         }).ToArray();
     }
-    public static string RenameSpeaker(string transcript,string old,string name)
+    public static string RenameSpeaker(string transcript, string old, string name)
     {
-        if(string.IsNullOrWhiteSpace(name)||name.IndexOfAny(['\r','\n','*',':'])>=0)throw new ArgumentException("A speaker name cannot contain line breaks, stars or colons");
-        return Regex.Replace(transcript,@"(?m)^(\*\*\[\d+:\d{2}:\d{2}\] )"+Regex.Escape(old)+@":\*\*",m=>m.Groups[1].Value+name.Trim()+":**");
+        if (string.IsNullOrWhiteSpace(name) || name.IndexOfAny(['\r', '\n', '*', ':']) >= 0) throw new ArgumentException("A speaker name cannot contain line breaks, stars or colons");
+        return Regex.Replace(transcript, @"(?m)^(\*\*\[\d+:\d{2}:\d{2}\] )" + Regex.Escape(old) + @":\*\*", m => m.Groups[1].Value + name.Trim() + ":**");
     }
     public static string Clock(double t)
     {

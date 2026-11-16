@@ -93,9 +93,12 @@ public sealed class Workspace(string root)
     }
     public static MeetingMeta? ReadMeta(string folder)
     {
-        try { using var document=JsonDocument.Parse(File.ReadAllText(Path.Combine(folder,"meta.json")));var value=document.RootElement;
-            if(!value.TryGetProperty("id",out var id)||id.ValueKind!=JsonValueKind.String||!value.TryGetProperty("title",out var title)||title.ValueKind!=JsonValueKind.String||!value.TryGetProperty("startedAt",out var started)||started.ValueKind!=JsonValueKind.String)return null;
-            var m = JsonFiles.Read<MeetingMeta>(Path.Combine(folder, "meta.json")); if (m != null && m.Mode != null) m.Mode = Modes.Read(m.Mode); return m; }
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(folder, "meta.json"))); var value = document.RootElement;
+            if (!value.TryGetProperty("id", out var id) || id.ValueKind != JsonValueKind.String || !value.TryGetProperty("title", out var title) || title.ValueKind != JsonValueKind.String || !value.TryGetProperty("startedAt", out var started) || started.ValueKind != JsonValueKind.String) return null;
+            var m = JsonFiles.Read<MeetingMeta>(Path.Combine(folder, "meta.json")); if (m != null && m.Mode != null) m.Mode = Modes.Read(m.Mode); return m;
+        }
         catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException) { return null; }
     }
     public static void WriteMeta(string folder, MeetingMeta meta) => JsonFiles.Write(Path.Combine(folder, "meta.json"), meta);
@@ -134,7 +137,7 @@ public sealed class Workspace(string root)
                 var p = Path.Combine(folder, file);
                 if (File.Exists(p) && Retitled(File.ReadAllText(p), old, meta.Title) is { } text) JsonFiles.AtomicWrite(p, text);
             }
-            if(File.Exists(Path.Combine(folder,"comments.json")))CommentFiles.Save(folder,CommentFiles.Read(folder),meta.Title);
+            if (File.Exists(Path.Combine(folder, "comments.json"))) CommentFiles.Save(folder, CommentFiles.Read(folder), meta.Title);
             return new(folder, meta);
         }
     }
@@ -149,6 +152,6 @@ public sealed class Workspace(string root)
 
 internal static class TextElements
 {
-    public static IEnumerable<string> AsElements(this System.Globalization.TextElementEnumerator e) { while(e.MoveNext()) yield return e.GetTextElement(); }
+    public static IEnumerable<string> AsElements(this System.Globalization.TextElementEnumerator e) { while (e.MoveNext()) yield return e.GetTextElement(); }
     public static string[] Elements(this string s) => System.Globalization.StringInfo.GetTextElementEnumerator(s).AsElements().ToArray();
 }

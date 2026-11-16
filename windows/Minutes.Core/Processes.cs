@@ -15,12 +15,12 @@ public static class ToolProcess
         if (!string.IsNullOrWhiteSpace(custom)) return File.Exists(custom) ? custom : null;
         var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var dirs = new[] { Path.Combine(home,".local","bin"), Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),"npm"), Path.Combine(local,"Programs",name), Path.Combine(local,"Programs","Ollama"), Path.Combine(local,"Microsoft","WinGet","Links"), Path.Combine(home,".claude","local") }
+        var dirs = new[] { Path.Combine(home, ".local", "bin"), Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "npm"), Path.Combine(local, "Programs", name), Path.Combine(local, "Programs", "Ollama"), Path.Combine(local, "Microsoft", "WinGet", "Links"), Path.Combine(home, ".claude", "local") }
             .Concat((Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator));
         var extensions = OperatingSystem.IsWindows() ? new[] { ".exe", ".cmd", ".bat", "" } : [""];
-        return dirs.Where(d => d.Length > 0).SelectMany(d => extensions.Select(e => Path.Combine(d,name+e))).FirstOrDefault(File.Exists);
+        return dirs.Where(d => d.Length > 0).SelectMany(d => extensions.Select(e => Path.Combine(d, name + e))).FirstOrDefault(File.Exists);
     }
-    public static async Task<ToolOutput> RunAsync(string executable, IEnumerable<string> args, string input, string directory, TimeSpan timeout, CancellationToken cancel = default, IReadOnlyDictionary<string,string>? environment = null)
+    public static async Task<ToolOutput> RunAsync(string executable, IEnumerable<string> args, string input, string directory, TimeSpan timeout, CancellationToken cancel = default, IReadOnlyDictionary<string, string>? environment = null)
     {
         Directory.CreateDirectory(directory);
         var info = new ProcessStartInfo(executable) { WorkingDirectory = directory, UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8 };
@@ -33,7 +33,7 @@ public static class ToolProcess
             info.ArgumentList.Add(entry);
         }
         foreach (var arg in arguments) info.ArgumentList.Add(arg);
-        if (environment != null) foreach (var (key,value) in environment) info.Environment[key] = value;
+        if (environment != null) foreach (var (key, value) in environment) info.Environment[key] = value;
         using var process = new Process { StartInfo = info };
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancel); deadline.CancelAfter(timeout);
         process.Start();
@@ -41,9 +41,9 @@ public static class ToolProcess
         var output = process.StandardOutput.ReadToEndAsync(); var errors = process.StandardError.ReadToEndAsync();
         try
         {
-            await process.StandardInput.WriteAsync(input.AsMemory(),deadline.Token);process.StandardInput.Close();
+            await process.StandardInput.WriteAsync(input.AsMemory(), deadline.Token); process.StandardInput.Close();
             await process.WaitForExitAsync(deadline.Token);
-            return new(process.ExitCode,await output,await errors);
+            return new(process.ExitCode, await output, await errors);
         }
         catch (OperationCanceledException) when (!cancel.IsCancellationRequested) { throw new TimeoutException($"{Path.GetFileName(executable)} did not finish within {timeout.TotalMinutes:0} minutes"); }
     }
@@ -58,18 +58,18 @@ public static class ToolProcess
     }
     public static string CmdQuote(string value)
     {
-        if (value.IndexOfAny(['\r','\n','%','!','"']) >= 0) throw new ArgumentException("This CLI's npm shim cannot safely receive this argument. Set its native executable path in Settings.");
-        return "\""+value+"\"";
+        if (value.IndexOfAny(['\r', '\n', '%', '!', '"']) >= 0) throw new ArgumentException("This CLI's npm shim cannot safely receive this argument. Set its native executable path in Settings.");
+        return "\"" + value + "\"";
     }
 }
 public record SummaryModel(string Provider, string Name)
 {
-    public string RawValue => Provider == "claude" ? Name : Provider+":"+Name;
-    public string Label => Provider switch { "claude" => "Claude "+System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(Name), "codex" => Name.Length==0?"Codex":Name, "agy" => Name.Length==0?"Gemini":Name, "ollama" => Name+" (Ollama)", _ => Provider };
-    public TimeSpan Timeout => TimeSpan.FromSeconds(Provider switch { "claude"=>300,"codex" or "agy"=>600,_=>1200 });
+    public string RawValue => Provider == "claude" ? Name : Provider + ":" + Name;
+    public string Label => Provider switch { "claude" => "Claude " + System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(Name), "codex" => Name.Length == 0 ? "Codex" : Name, "agy" => Name.Length == 0 ? "Gemini" : Name, "ollama" => Name + " (Ollama)", _ => Provider };
+    public TimeSpan Timeout => TimeSpan.FromSeconds(Provider switch { "claude" => 300, "codex" or "agy" => 600, _ => 1200 });
     public static SummaryModel Parse(string value)
     {
-        if(value is "sonnet" or "opus" or "haiku")return new("claude",value);
-        var p=value.Split(':',2);if(p.Length!=2||p[0] is not ("codex" or "agy" or "ollama"))throw new ArgumentException("Unknown summary model");return new(p[0],p[1]);
+        if (value is "sonnet" or "opus" or "haiku") return new("claude", value);
+        var p = value.Split(':', 2); if (p.Length != 2 || p[0] is not ("codex" or "agy" or "ollama")) throw new ArgumentException("Unknown summary model"); return new(p[0], p[1]);
     }
 }

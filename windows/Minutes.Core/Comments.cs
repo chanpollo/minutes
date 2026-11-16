@@ -33,7 +33,7 @@ public sealed class MeetingComment
     public DateTimeOffset? ResolvedAt { get; set; }
     public string? ResolvedBy { get; set; }
     public JsonElement? Reply { get; set; }
-    public override string ToString() => $"{(ResolvedAt != null ? "✓ " : "")}{Author}: {Text}"+string.Concat((Replies??[]).Select(r=>"\n"+r.Author+": "+r.Text+(r.Undone==true?" (undone)":"")));
+    public override string ToString() => $"{(ResolvedAt != null ? "✓ " : "")}{Author}: {Text}" + string.Concat((Replies ?? []).Select(r => "\n" + r.Author + ": " + r.Text + (r.Undone == true ? " (undone)" : "")));
 }
 public record CommentAnchor(int Unit, int Start, int Length);
 public sealed class CommentDocument(IReadOnlyList<string?> units, IReadOnlyList<double>? times = null)
