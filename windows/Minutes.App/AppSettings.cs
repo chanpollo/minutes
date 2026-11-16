@@ -9,6 +9,7 @@ public sealed class AppSettings
     public string WorkspacePath { get; set; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Meetings");
     public Dictionary<string, string> AppModes { get; set; } = [];
     public string RecordMode { get; set; } = "screen";
+    public string VideoQuality { get; set; } = "balanced";
     public string SpeechLanguage { get; set; } = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == "th" ? "th" : "auto";
     public string SummaryProvider { get; set; } = "claude";
     public Dictionary<string, string> ProviderModels { get; set; } = [];

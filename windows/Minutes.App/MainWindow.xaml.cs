@@ -33,6 +33,8 @@ public sealed partial class MainWindow : Window
     private string recordingScope = "Whole-system audio";
     private ContentDialog? callDialog, stopDialog;
     private bool polling;
+    private readonly HashSet<string> pendingSync = [];
+    private readonly DispatcherTimer syncDebounce = new() { Interval = TimeSpan.FromSeconds(2) };
     private readonly DispatcherTimer maintenance = new() { Interval = TimeSpan.FromHours(6) };
     public MainWindow()
     {
@@ -40,9 +42,16 @@ public sealed partial class MainWindow : Window
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1440, 860));
         workspace = new(settings.WorkspacePath); summaries = new(AppSettings.Support, settings.FindTool);
         desktop = new(this, () => Activate(), () => { if (recorder.IsRecording) Stop_Click(this, new RoutedEventArgs()); else Record_Click(this, new RoutedEventArgs()); }, () => Stop_Click(this, new RoutedEventArgs()), () => NewNote_Click(this, new RoutedEventArgs()), () => Settings_Click(this, new RoutedEventArgs()), () => !recorder.IsRecording && jobs.CurrentCount == 1 && captureActions.CurrentCount == 1, mode => { if (recorder.IsRecording) return; settings.RecordMode = mode; settings.Save(); RecordButton.Label = mode == "screen" ? "Record Screen" : "Record Voice"; Record_Click(this, new()); });
-        Closed += (_, _) => { desktop.Dispose(); recorder.Dispose(); summaries.Dispose(); googleHttp.Dispose(); maintenance.Stop(); micPoll.Stop(); Player.MediaPlayer?.Dispose(); };
+        Closed += (_, _) => { desktop.Dispose(); recorder.Dispose(); summaries.Dispose(); googleHttp.Dispose(); maintenance.Stop(); micPoll.Stop(); syncDebounce.Stop(); Player.MediaPlayer?.Dispose(); };
         var newNoteKey = new Microsoft.UI.Xaml.Input.KeyboardAccelerator { Key = Windows.System.VirtualKey.N, Modifiers = Windows.System.VirtualKeyModifiers.Control }; newNoteKey.Invoked += (_, e) => { NewNote_Click(this, new()); e.Handled = true; }; ((FrameworkElement)Content).KeyboardAccelerators.Add(newNoteKey);
         RecordButton.Label = settings.RecordMode == "screen" ? "Record Screen" : "Record Voice"; Refresh(); Status.Message = "Waiting for a meeting";
+        syncDebounce.Tick += async (_, _) =>
+        {
+            syncDebounce.Stop(); if (!await jobs.WaitAsync(0)) { syncDebounce.Start(); return; }
+            try { foreach (var id in pendingSync.ToArray()) { if (workspace.Find(id) is { } meeting) await SyncMeetingAsync(meeting); pendingSync.Remove(id); } }
+            catch (Exception ex) { Status.Message = "Sync needs attention: " + ex.Message; }
+            finally { jobs.Release(); }
+        };
         ((FrameworkElement)Content).Loaded += async (_, _) => await StartupAsync();
         maintenance.Tick += async (_, _) => await RunJob(async () => { await CleanupAsync(); await SyncAllAsync(); }, "Maintenance complete"); maintenance.Start(); micPoll.Tick += async (_, _) => await PollCallsAsync(); micPoll.Start();
     }
@@ -56,6 +65,7 @@ public sealed partial class MainWindow : Window
             if (Directory.Exists(staging)) foreach (var folder in Directory.GetDirectories(staging))
                 {
                     var meta = Workspace.ReadMeta(folder); if (meta == null) continue;
+                    if (File.Exists(Path.Combine(folder, ".minutes-imported")) && workspace.Find(meta.Id) != null) { try { Directory.Delete(folder, true); } catch (IOException) { } continue; }
                     if (!await Confirm("Recover unfinished recording?", meta.Title + " has audio left from an interrupted session.", "Recover")) continue;
                     var lastWrite = Directory.GetFiles(folder).Where(f => f.EndsWith(".wav", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase)).Select(File.GetLastWriteTimeUtc).DefaultIfEmpty(meta.StartedAt.UtcDateTime).Max();
                     await Task.Run(() => AudioRecorder.Recover(folder)); meta.EndedAt ??= new DateTimeOffset(lastWrite); Workspace.WriteMeta(folder, meta); Directory.CreateDirectory(workspace.Root);
@@ -65,7 +75,7 @@ public sealed partial class MainWindow : Window
                         foreach (var file in Directory.GetFiles(folder).Where(f => Path.GetFileName(f) != "meta.json")) File.Move(file, Path.Combine(existing.Folder, Path.GetFileName(file)), true);
                         workspace.Update(existing.Folder, m => { m.StartedAt = meta.StartedAt; m.EndedAt = meta.EndedAt; m.Mode = meta.Mode; m.App = meta.App; m.BundleID = meta.BundleID; m.VideoOffset = meta.VideoOffset; }); Directory.Delete(folder, true);
                     }
-                    else { var target = Workspace.UniquePath(workspace.Root, Workspace.FolderName(meta.Title, meta.StartedAt)); Directory.Move(folder, target); }
+                    else { var target = Workspace.UniquePath(workspace.Root, Workspace.FolderName(meta.Title, meta.StartedAt)); DirectoryTransfer.Move(folder, target); }
                 }
             await CleanupAsync();
             var models = new ModelStore(Path.Combine(AppSettings.Support, "models"));
@@ -89,6 +99,7 @@ public sealed partial class MainWindow : Window
             .OrderByDescending(m => m.Meta.PinnedAt).ThenByDescending(m => m.Meta.StartedAt).Select(m => m with { Activity = m.Activity ?? liveJobs.GetValueOrDefault(m.Meta.Id) }).ToArray();
         var groups = workspace.Groups(); var id = group?.Id; GroupFilter.ItemsSource = new[] { new MeetingGroup("", "All groups") }.Concat(groups).ToArray(); GroupFilter.SelectedItem = ((IEnumerable<MeetingGroup>)GroupFilter.ItemsSource).FirstOrDefault(g => g.Id == id);
     }
+    private void ScheduleSync(string id) { pendingSync.Add(id); syncDebounce.Stop(); syncDebounce.Start(); }
     private static string SearchText(Meeting m) => m.Meta.Title + "\n" + string.Join("\n", new[] { "transcript.md", "notes.md", "comments.md" }.Select(n => Read(m.Folder, n)));
     private static string Read(string folder, string name) => File.Exists(Path.Combine(folder, name)) ? File.ReadAllText(Path.Combine(folder, name)) : "";
     private void Show(Meeting meeting)
@@ -102,7 +113,7 @@ public sealed partial class MainWindow : Window
     }
     private List<MeetingComment> commentList = [];
     private void LoadComments() { commentList = selected == null ? [] : CommentFiles.Read(selected.Folder); Comments.ItemsSource = commentList; }
-    private void SaveComments() { if (selected == null) return; CommentFiles.Save(selected.Folder, commentList, selected.Meta.Title); Comments.ItemsSource = null; Comments.ItemsSource = commentList; }
+    private void SaveComments() { if (selected == null) return; CommentFiles.Save(selected.Folder, commentList, selected.Meta.Title); ScheduleSync(selected.Meta.Id); Comments.ItemsSource = null; Comments.ItemsSource = commentList; }
     private async Task RunCaptureAction(Func<Task> work, string success)
     {
         if (!await captureActions.WaitAsync(0)) return;
@@ -134,7 +145,7 @@ public sealed partial class MainWindow : Window
     private async void NewNote_Click(object sender, RoutedEventArgs e)
     {
         var title = await Ask("New Note", "Untitled"); if (title == null) return;
-        await RunJob(() => { var note = workspace.MakeNote((GroupFilter.SelectedItem as MeetingGroup)?.Id is { Length: > 0 } id ? id : null); Show(workspace.Rename(note, title)); return Task.CompletedTask; }, "Note created");
+        await RunJob(() => { var note = workspace.MakeNote((GroupFilter.SelectedItem as MeetingGroup)?.Id is { Length: > 0 } id ? id : null); Show(workspace.Rename(note, title)); ScheduleSync(note.Meta.Id); return Task.CompletedTask; }, "Note created");
     }
     private async void NewGroup_Click(object sender, RoutedEventArgs e)
     {
@@ -143,11 +154,11 @@ public sealed partial class MainWindow : Window
     private async void Title_LostFocus(object sender, RoutedEventArgs e)
     {
         if (loading || selected == null || MeetingTitle.Text.Trim() == selected.Meta.Title) return;
-        await RunJob(() => { Show(workspace.Rename(selected, MeetingTitle.Text)); return Task.CompletedTask; }, "Title saved");
+        await RunJob(() => { Show(workspace.Rename(selected, MeetingTitle.Text)); ScheduleSync(selected!.Meta.Id); return Task.CompletedTask; }, "Title saved");
     }
     private void Notes_Changed(object sender, TextChangedEventArgs e)
     {
-        if (loading || selected == null) return; try { JsonFiles.AtomicWrite(Path.Combine(selected.Folder, "notes.md"), Notes.Text); } catch (IOException ex) { Status.Message = ex.Message; Status.Severity = InfoBarSeverity.Error; }
+        if (loading || selected == null) return; try { JsonFiles.AtomicWrite(Path.Combine(selected.Folder, "notes.md"), Notes.Text); ScheduleSync(selected.Meta.Id); } catch (IOException ex) { Status.Message = ex.Message; Status.Severity = InfoBarSeverity.Error; }
     }
     private async void Confidential_Click(object sender, RoutedEventArgs e)
     {
@@ -210,7 +221,7 @@ public sealed partial class MainWindow : Window
         var mode = promptedCall == null ? settings.RecordMode : promptedMode ?? settings.AppModes.GetValueOrDefault(promptedCall.Owner) ?? "screen";
         if (mode == "screen")
         {
-            try { pickedVideo = VideoRecorder.ForMeeting(this, promptedCall?.ProcessId); }
+            try { pickedVideo = VideoRecorder.ForMeeting(this, promptedCall?.ProcessId, settings.VideoQuality); }
             catch (Exception ex) { if (!await Confirm("Screen could not be recorded", ex.Message + " Start Voice instead?", "Record Voice")) return; }
         }
         var note = promptedCall == null && selected?.Meta.IsNote == true ? selected : null;
@@ -251,7 +262,7 @@ public sealed partial class MainWindow : Window
                 target = existing.Folder; foreach (var file in Directory.GetFiles(staged).Where(f => Path.GetFileName(f) != "meta.json")) File.Move(file, Path.Combine(target, Path.GetFileName(file)), true);
                 var old = existing.Meta; old.StartedAt = meta.StartedAt; old.EndedAt = meta.EndedAt; old.Mode = meta.Mode; Workspace.WriteMeta(target, old); Directory.Delete(staged, true); meta = old;
             }
-            else { target = Workspace.UniquePath(workspace.Root, Workspace.FolderName(meta.Title, meta.StartedAt)); Directory.Move(staged, target); }
+            else { target = Workspace.UniquePath(workspace.Root, Workspace.FolderName(meta.Title, meta.StartedAt)); DirectoryTransfer.Move(staged, target); }
             recordingFolder = null; RecordButton.IsEnabled = true; StopButton.IsEnabled = MuteButton.IsEnabled = false; MuteButton.IsChecked = false; Show(new(target, meta));
             completedFolder = target; failure = videoFailure;
         }, "Recording saved");
@@ -441,6 +452,7 @@ public sealed partial class MainWindow : Window
         var external = Toggle("Mark external calendar meetings confidential", settings.ConfidentialExternal);
         var anyApp = Toggle("Ask to record any app using the microphone", settings.AskAnyApp);
         var mode = Choice("Default recording mode", ["screen", "voice"], settings.RecordMode);
+        var quality = Choice("Video quality", ["smaller", "balanced", "best"], settings.VideoQuality);
         var speech = Choice("Spoken language", ["th", "en", "auto"], settings.SpeechLanguage);
         var signin = new Button { Content = "Sign In…" }; signin.Click += (_, _) => { try { if (provider.SelectedItem is string p) { if (!string.IsNullOrWhiteSpace(toolPath.Text)) settings.ToolPaths[p] = toolPath.Text; else settings.ToolPaths.Remove(p); } DesktopIntegration.SignIn(provider.SelectedItem?.ToString() ?? "claude", settings); } catch (Exception ex) { Status.Message = ex.Message; } }; panel.Children.Add(signin);
         var models = new Button { Content = "Download Speech Models…" }; models.Click += async (_, _) => await RunJob(() => new ModelStore(Path.Combine(AppSettings.Support, "models")).DownloadAsync(settings.SeparateSpeakers, new Progress<string>(s => Status.Message = s)), "Speech models installed"); panel.Children.Add(models);
@@ -474,6 +486,6 @@ public sealed partial class MainWindow : Window
         if (!string.IsNullOrWhiteSpace(toolPath.Text)) settings.ToolPaths[settings.SummaryProvider] = toolPath.Text; else settings.ToolPaths.Remove(settings.SummaryProvider);
         settings.AutoSummarise = autoSummary.IsChecked == true; settings.SeparateSpeakers = separate.IsChecked == true; settings.TitleFromCalendar = calendarTitles.IsChecked == true; settings.ConfidentialExternal = external.IsChecked == true; settings.AskAnyApp = anyApp.IsChecked == true;
         settings.BriefingMode = briefingMode.SelectedItem?.ToString() ?? "request"; settings.BriefingVoiceThai = (thaiVoice.SelectedItem as VoiceInformation)?.Id; settings.BriefingVoiceEnglish = (englishVoice.SelectedItem as VoiceInformation)?.Id; settings.CompressAudio = compress.IsChecked == true; settings.KeepVideoDays = (int)(double.IsNaN(videoDays.Value) ? 90 : videoDays.Value); settings.KeepAudioDays = (int)(double.IsNaN(audioDays.Value) ? 0 : audioDays.Value); settings.DriveUploadText = uploadText.IsChecked == true; settings.DriveUploadMedia = uploadMedia.IsChecked == true; settings.SyncFolderPerGroup = perGroup.IsChecked == true;
-        settings.RecordMode = mode.SelectedItem?.ToString() ?? "screen"; settings.Save(); RecordButton.Label = settings.RecordMode == "screen" ? "Record Screen" : "Record Voice"; workspace = new(settings.WorkspacePath); DesktopIntegration.SetStartup(startup.IsChecked == true); Refresh();
+        settings.VideoQuality = quality.SelectedItem?.ToString() ?? "balanced"; settings.RecordMode = mode.SelectedItem?.ToString() ?? "screen"; settings.Save(); RecordButton.Label = settings.RecordMode == "screen" ? "Record Screen" : "Record Voice"; workspace = new(settings.WorkspacePath); DesktopIntegration.SetStartup(startup.IsChecked == true); Refresh();
     }
 }

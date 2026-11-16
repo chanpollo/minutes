@@ -21,16 +21,17 @@ internal sealed class VideoRecorder : IAsyncDisposable
     private readonly Channel<Direct3D11CaptureFrame> frames = Channel.CreateBounded<Direct3D11CaptureFrame>(new BoundedChannelOptions(2) { SingleReader = true, SingleWriter = true });
     private readonly TaskCompletionSource first = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly int fps;
+    private readonly string quality;
     private TimeSpan? origin, last;
     private Task? encoding;
     private bool stopped;
     private string? screenFile;
     public double Offset { get; private set; }
-    private VideoRecorder(GraphicsCaptureItem item, int fps) { this.item = item; this.fps = fps; device = CreateDevice(); }
-    public static VideoRecorder ForMeeting(Window owner, uint? processId, int fps = 15)
+    private VideoRecorder(GraphicsCaptureItem item, int fps, string quality = "balanced") { this.item = item; this.fps = fps; this.quality = quality; device = CreateDevice(); }
+    public static VideoRecorder ForMeeting(Window owner, uint? processId, string quality = "balanced")
     {
         if (!GraphicsCaptureSession.IsSupported()) throw new PlatformNotSupportedException("Screen capture is not supported on this PC");
-        return new(WindowCapture.Create(WinRT.Interop.WindowNative.GetWindowHandle(owner), processId), fps);
+        return new(WindowCapture.Create(WinRT.Interop.WindowNative.GetWindowHandle(owner), processId), quality == "smaller" ? 10 : 15, quality);
     }
     public static async Task<VideoRecorder?> PickAsync(Window owner, int fps = 15)
     {
@@ -40,7 +41,6 @@ internal sealed class VideoRecorder : IAsyncDisposable
     }
     public async Task StartAsync(string folder, System.Diagnostics.Stopwatch clock)
     {
-        if (item.Size.Width % 2 != 0 || item.Size.Height % 2 != 0) throw new IOException("This window has odd pixel dimensions. Resize it by one pixel and try again.");
         screenFile = Path.Combine(folder, "screen.mp4");
         pool = Direct3D11CaptureFramePool.CreateFreeThreaded(device, DirectXPixelFormat.B8G8R8A8UIntNormalized, 3, item.Size);
         pool.FrameArrived += (_, _) =>
@@ -73,17 +73,17 @@ internal sealed class VideoRecorder : IAsyncDisposable
         var directory = await StorageFolder.GetFolderFromPathAsync(folder);
         var file = await directory.CreateFileAsync("screen.mp4", CreationCollisionOption.ReplaceExisting);
         var stream = await file.OpenAsync(FileAccessMode.ReadWrite);
-        var profile = Profile(item.Size.Width, item.Size.Height, fps);
+        var profile = Profile(item.Size.Width, item.Size.Height, fps, quality);
         var transcoder = new MediaTranscoder { HardwareAccelerationEnabled = true };
         var prepared = await transcoder.PrepareMediaStreamSourceTranscodeAsync(source, stream, profile);
         if (!prepared.CanTranscode) { stream.Dispose(); throw new IOException("H.264 encoder: " + prepared.FailureReason); }
         encoding = EncodeAsync();
         async Task EncodeAsync() { try { await prepared.TranscodeAsync(); } finally { stream.Dispose(); } }
     }
-    private static MediaEncodingProfile Profile(int width, int height, int fps)
+    private static MediaEncodingProfile Profile(int width, int height, int fps, string quality)
     {
         var p = MediaEncodingProfile.CreateMp4(VideoEncodingQuality.HD1080p); p.Audio = null;
-        p.Video.Width = (uint)width; p.Video.Height = (uint)height; p.Video.FrameRate.Numerator = (uint)fps; p.Video.FrameRate.Denominator = 1; p.Video.Bitrate = (uint)Math.Clamp((long)width * height * fps / 8, 500000, 24000000); return p;
+        p.Video.Width = (uint)((width + 1) / 2 * 2); p.Video.Height = (uint)((height + 1) / 2 * 2); p.Video.FrameRate.Numerator = (uint)fps; p.Video.FrameRate.Denominator = 1; p.Video.Bitrate = (uint)Math.Clamp((long)(width * (double)height * fps / 8 * (quality == "smaller" ? .5 : quality == "best" ? 2 : 1)), 500000, 24000000); return p;
     }
     public async Task StopCaptureAsync()
     {
@@ -102,7 +102,7 @@ internal sealed class VideoRecorder : IAsyncDisposable
             var audio = await BackgroundAudioTrack.CreateFromFileAsync(await StorageFile.GetFileFromPathAsync(file)); audio.Volume = .5; composition.BackgroundAudioTracks.Add(audio);
         }
         var directory = await StorageFolder.GetFolderFromPathAsync(folder); var output = await directory.CreateFileAsync("meeting.partial.mp4", CreationCollisionOption.ReplaceExisting);
-        var profile = Profile(item.Size.Width, item.Size.Height, fps); profile.Audio = AudioEncodingProperties.CreateAac(48000, 2, 128000);
+        var profile = Profile(item.Size.Width, item.Size.Height, fps, quality); profile.Audio = AudioEncodingProperties.CreateAac(48000, 2, 128000);
         var result = await composition.RenderToFileAsync(output, MediaTrimmingPreference.Precise, profile);
         if (result != Windows.Media.Transcoding.TranscodeFailureReason.None) throw new IOException("Meeting mux failed: " + result);
         File.Move(output.Path, Path.Combine(folder, "meeting.mp4"), true); File.Delete(screenFile);
