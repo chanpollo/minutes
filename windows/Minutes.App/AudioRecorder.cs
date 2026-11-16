@@ -49,6 +49,7 @@ public sealed class AudioRecorder : IDisposable
     private readonly Stopwatch clock=new();
     private Track? mic,others;
     private string? folder;
+    public Stopwatch RecordingClock=>clock;
     public bool IsRecording=>folder!=null;
     public bool Muted { get; private set; }
     public async Task<string> StartAsync(string directory, uint? processId = null)

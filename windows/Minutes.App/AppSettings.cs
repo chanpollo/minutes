@@ -12,6 +12,11 @@ public sealed class AppSettings
     public string SummaryProvider { get; set; } = "claude";
     public string SummaryModel { get; set; } = "sonnet";
     public string SummaryLanguage { get; set; } = "thai";
+    public bool AskAnyApp { get; set; }
+    public HashSet<string> MeetingAppsOff { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public HashSet<string> MeetingAppsOn { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public HashSet<string> AlwaysRecord { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public int AutoStopSeconds { get; set; } = 30;
     public bool AutoSummarise { get; set; }
     public bool SeparateSpeakers { get; set; } = true;
     public bool CompressAudio { get; set; } = true;

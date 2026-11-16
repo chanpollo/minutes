@@ -16,10 +16,17 @@ public sealed partial class MainWindow : Window
     private Meeting? selected;
     private bool loading;
     private readonly AudioRecorder recorder=new();
+    private VideoRecorder? video;
     private readonly SemaphoreSlim jobs=new(1);
     private string? recordingFolder;
     private SummaryService summaries;
     private readonly DesktopIntegration desktop;
+    private readonly MeetingDetector detector=new();
+    private readonly DispatcherTimer micPoll=new(){Interval=TimeSpan.FromSeconds(2)};
+    private MicUser? promptedCall,recordingCall;
+    private string? promptedTitle;
+    private ContentDialog? callDialog,stopDialog;
+    private bool polling;
     private readonly DispatcherTimer maintenance=new(){Interval=TimeSpan.FromHours(6)};
     public MainWindow()
     {
@@ -27,9 +34,9 @@ public sealed partial class MainWindow : Window
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1440,860));
         workspace=new(settings.WorkspacePath);summaries=new(AppSettings.Support,settings.FindTool);
         desktop=new(this,()=>Activate(),()=>Record_Click(this,new RoutedEventArgs()),()=>Stop_Click(this,new RoutedEventArgs()),()=>NewNote_Click(this,new RoutedEventArgs()),()=>Settings_Click(this,new RoutedEventArgs()));
-        Closed+=(_,_)=>{desktop.Dispose();recorder.Dispose();summaries.Dispose();maintenance.Stop();Player.MediaPlayer?.Dispose();};
+        Closed+=(_,_)=>{desktop.Dispose();recorder.Dispose();summaries.Dispose();maintenance.Stop();micPoll.Stop();Player.MediaPlayer?.Dispose();};
         Refresh();Status.Message="Windows preview · voice captures microphone and whole-system audio. See TESTING.md for gaps.";
-        maintenance.Tick+=async(_,_)=>await RunJob(async()=>{await CleanupAsync();await SyncAllAsync();},"Maintenance complete");maintenance.Start();
+        maintenance.Tick+=async(_,_)=>await RunJob(async()=>{await CleanupAsync();await SyncAllAsync();},"Maintenance complete");maintenance.Start();micPoll.Tick+=async(_,_)=>await PollCallsAsync();micPoll.Start();
     }
     private void Refresh()
     {
@@ -103,17 +110,29 @@ public sealed partial class MainWindow : Window
     private async void Record_Click(object sender,RoutedEventArgs e)
     {
         if(recorder.IsRecording)return;
+        VideoRecorder? pickedVideo=null;
         if(settings.RecordMode=="screen")
         {
-            if(!await Confirm("Screen recording is not implemented in this preview","Only microphone and whole-system audio can be recorded in this build. Start a Voice recording?","Record Voice"))return;
+            try{pickedVideo=await VideoRecorder.PickAsync(this);if(pickedVideo==null)return;}
+            catch(Exception ex){if(!await Confirm("Screen could not be recorded",ex.Message+" Start Voice instead?","Record Voice"))return;}
         }
-        var note=selected?.Meta.IsNote==true?selected:null;
-        var title=note?.Meta.Title??await Ask("Record Voice · Tell everyone you are recording.","Meeting");if(title==null)return;
+        var note=promptedCall==null&&selected?.Meta.IsNote==true?selected:null;
+        var calendar=note==null&&settings.TitleFromCalendar?OutlookCalendar.Current(promptedCall?.Owner,settings.RecordMode=="voice"&&promptedCall==null,DateTimeOffset.Now).FirstOrDefault():null;
+        var title=note?.Meta.Title??promptedTitle??await Ask("Record Voice · Tell everyone you are recording.",calendar?.Title??"Meeting");if(title==null)return;
         await RunJob(async()=>
         {
-            Player.MediaPlayer?.Pause();var meta=note==null?new MeetingMeta{Title=title,Mode="voice",StartedAt=DateTimeOffset.Now}:new MeetingMeta{Id=note.Meta.Id,Title=note.Meta.Title,Note=true,GroupID=note.Meta.GroupID,Confidential=note.Meta.Confidential,Mode="voice",StartedAt=DateTimeOffset.Now};
+            Player.MediaPlayer?.Pause();var meta=note==null?new MeetingMeta{Title=title,Mode=pickedVideo!=null?"screen":"voice",StartedAt=DateTimeOffset.Now}:new MeetingMeta{Id=note.Meta.Id,Title=note.Meta.Title,Note=true,GroupID=note.Meta.GroupID,Confidential=note.Meta.Confidential,Mode=pickedVideo!=null?"screen":"voice",StartedAt=DateTimeOffset.Now};
+            if(note==null){meta.App=promptedCall?.AppName;meta.BundleID=promptedCall?.Owner;meta.Attendees=calendar?.Attendees;if(settings.ConfidentialExternal&&calendar?.HasExternal==true)meta.Confidential=true;}
+            promptedTitle=null;
             var folder=Path.Combine(AppSettings.Support,"Recording",meta.Id);if(Directory.Exists(folder))throw new IOException("An unfinished recording with this identity exists. Recover it before recording again.");
-            Directory.CreateDirectory(folder);Workspace.WriteMeta(folder,meta);var scope=await recorder.StartAsync(folder);recordingFolder=folder;
+            Directory.CreateDirectory(folder);Workspace.WriteMeta(folder,meta);var scope=await recorder.StartAsync(folder,promptedCall?.ProcessId);recordingCall=promptedCall;promptedCall=null;detector.RecordingStarted();recordingFolder=folder;
+            video=pickedVideo;
+            if(video!=null)
+            {
+                try{await video.StartAsync(folder,recorder.RecordingClock);meta.VideoOffset=video.Offset;Workspace.WriteMeta(folder,meta);}
+                catch(Exception ex){await video.DisposeAsync();video=null;Status.Message="Video failed; audio continues: "+ex.Message;}
+            }
+            Player.IsEnabled=false;
             RecordButton.IsEnabled=false;StopButton.IsEnabled=MuteButton.IsEnabled=true;Status.Message="Recording · Microphone and "+scope;
         },"Recording · Microphone and whole-system audio");
     }
@@ -122,7 +141,7 @@ public sealed partial class MainWindow : Window
         if(!recorder.IsRecording||recordingFolder==null)return;
         await RunJob(async()=>
         {
-            var staged=recordingFolder;Status.Message="Finishing audio…";await recorder.StopAsync();var meta=Workspace.ReadMeta(staged)!;meta.EndedAt=DateTimeOffset.Now;Workspace.WriteMeta(staged,meta);
+            var staged=recordingFolder;detector.StoppedByHand(recordingCall?.AppName,DateTimeOffset.Now);recordingCall=null;Status.Message="Finishing audio…";if(video!=null)await video.StopCaptureAsync();await recorder.StopAsync();if(video!=null){try{await video.MuxAsync(staged);}finally{await video.DisposeAsync();video=null;}}Player.IsEnabled=true;var meta=Workspace.ReadMeta(staged)!;meta.EndedAt=DateTimeOffset.Now;Workspace.WriteMeta(staged,meta);
             Directory.CreateDirectory(workspace.Root);var existing=meta.Note==true?workspace.Find(meta.Id):null;string target;
             if(existing!=null)
             {
@@ -180,6 +199,56 @@ public sealed partial class MainWindow : Window
         if(selected==null||recorder.IsRecording)return;var script=Read(selected.Folder,"briefing.md");if(script.Length==0){Status.Message="No briefing.md yet. Briefing generation is pending; see PARITY.md.";return;}
         await RunJob(async()=>{Player.MediaPlayer?.Pause();using var synth=new SpeechSynthesizer();var audio=await synth.SynthesizeTextToStreamAsync(script);var player=new Windows.Media.Playback.MediaPlayer();player.Source=MediaSource.CreateFromStream(audio,audio.ContentType);Player.SetMediaPlayer(player);Player.Visibility=Visibility.Visible;player.Play();},"Playing briefing");
     }
+    private async Task PollCallsAsync()
+    {
+        if(polling)return;polling=true;
+        try
+        {
+            var candidates=await Task.Run(AudioSessions.Capture);var playing=await Task.Run(AudioSessions.Playing);
+            detector.AutoStopAfter=Math.Max(5,settings.AutoStopSeconds);
+            var actions=detector.Poll(candidates,DateTimeOffset.Now,recorder.IsRecording?new(recordingCall?.AppName,recordingCall!=null):null,promptedCall?.AppName,stopDialog!=null,
+                owner=>MeetingApps.Allowed(owner,settings.AskAnyApp,settings.MeetingAppsOff,settings.MeetingAppsOn),owner=>settings.AlwaysRecord.Contains(owner),outputApps:playing);
+            foreach(var action in actions)
+            {
+                if(action.Kind=="closePrompt"){callDialog?.Hide();promptedCall=null;}
+                else if(action.Kind=="closeStopPrompt"){stopDialog?.Hide();stopDialog=null;}
+                else if(action.Kind=="stop"){stopDialog?.Hide();stopDialog=null;Stop_Click(this,new());}
+                else if(action.Kind=="askSameCall")
+                {
+                    if(await Confirm("New Meeting or Same Meeting?","The call app took the microphone again. Keep this recording for the same meeting?","Same Meeting"))detector.KeepRecording=true;
+                    else Stop_Click(this,new());
+                }
+                else if(action.Kind=="askToStop")
+                {
+                    stopDialog=new(){Title="Stop recording?",Content=$"The meeting app released its microphone. Recording will stop after {settings.AutoStopSeconds} seconds unless you keep recording.",PrimaryButtonText="Stop",SecondaryButtonText="Keep Recording",CloseButtonText="Cancel",XamlRoot=Content.XamlRoot};
+                    var dialog=stopDialog;
+                    _=dialog.ShowAsync().AsTask().ContinueWith(t=>DispatcherQueue.TryEnqueue(()=>{if(t.Status==TaskStatus.RanToCompletion&&t.Result==ContentDialogResult.Primary)Stop_Click(this,new());else if(t.Status==TaskStatus.RanToCompletion&&t.Result==ContentDialogResult.Secondary)detector.KeepRecording=true;if(stopDialog==dialog)stopDialog=null;}));
+                }
+                else if(action.Kind is "ask" or "recordWithoutAsking")
+                {
+                    promptedCall=candidates.FirstOrDefault(c=>c.AppName==action.App);
+                    if(promptedCall==null)continue;
+                    if(action.Kind=="recordWithoutAsking"){Record_Click(this,new());continue;}
+                    var title=new TextBox{Header="Title",Text=promptedCall.AppName+" meeting"};
+                    callDialog=new(){Title="Record this meeting?",Content=title,PrimaryButtonText="Record Voice",SecondaryButtonText="Always Record",CloseButtonText="Not now",XamlRoot=Content.XamlRoot};
+                    var app=promptedCall;var dialog=callDialog;
+                    _=dialog.ShowAsync().AsTask().ContinueWith(t=>DispatcherQueue.TryEnqueue(()=>
+                    {
+                        if(callDialog==dialog)callDialog=null;
+                        if(t.Status!=TaskStatus.RanToCompletion||t.Result==ContentDialogResult.None){detector.Decline(app.AppName,DateTimeOffset.Now);promptedCall=null;}
+                        else
+                        {
+                            promptedCall=app;promptedTitle=title.Text;
+                            if(t.Result==ContentDialogResult.Secondary){settings.AlwaysRecord.Add(app.Owner);settings.Save();}
+                            Record_Click(this,new());
+                        }
+                    }));
+                }
+            }
+        }
+        catch(Exception e){Status.Message="Meeting detection: "+e.Message;}
+        finally{polling=false;}
+    }
     private async void Settings_Click(object sender,RoutedEventArgs e)
     {
         if(recorder.IsRecording)return;
@@ -190,6 +259,7 @@ public sealed partial class MainWindow : Window
         var provider=Choice("Summary provider",["claude","codex","agy","ollama","off"],settings.SummaryProvider);
         var model=Text("Model (sonnet / opus / haiku, or provider model id)",settings.SummaryModel);
         var language=Choice("Summary language",["thai","english","meeting"],settings.SummaryLanguage);
+        var mode=Choice("Default recording mode",["screen","voice"],settings.RecordMode);
         var speech=Choice("Spoken language",["th","en","auto"],settings.SpeechLanguage);
         var signin=new Button{Content="Sign In…"};signin.Click+=(_,_)=>{try{DesktopIntegration.SignIn(provider.SelectedItem?.ToString()??"claude",settings);}catch(Exception ex){Status.Message=ex.Message;}};panel.Children.Add(signin);
         var models=new Button{Content="Download Speech Models…"};models.Click+=async(_,_)=>await RunJob(()=>new ModelStore(Path.Combine(AppSettings.Support,"models")).DownloadAsync(settings.SeparateSpeakers,new Progress<string>(s=>Status.Message=s)),"Speech models installed");panel.Children.Add(models);
@@ -200,6 +270,6 @@ public sealed partial class MainWindow : Window
         var dialog=new ContentDialog{Title="Settings",Content=new ScrollViewer{Content=panel},PrimaryButtonText="Save",CloseButtonText="Cancel",XamlRoot=Content.XamlRoot};
         if(await dialog.ShowAsync()!=ContentDialogResult.Primary)return;
         settings.WorkspacePath=workspaceBox.Text;settings.SummaryProvider=provider.SelectedItem?.ToString()??"off";settings.SummaryModel=model.Text;settings.SummaryLanguage=language.SelectedItem?.ToString()??"thai";settings.SpeechLanguage=speech.SelectedItem?.ToString()??"auto";settings.SyncMode=sync.SelectedItem?.ToString()??"off";settings.SyncFolder=string.IsNullOrWhiteSpace(syncFolder.Text)?null:syncFolder.Text;
-        settings.Save();workspace=new(settings.WorkspacePath);DesktopIntegration.SetStartup(startup.IsChecked==true);Refresh();
+        settings.RecordMode=mode.SelectedItem?.ToString()??"screen";settings.Save();workspace=new(settings.WorkspacePath);DesktopIntegration.SetStartup(startup.IsChecked==true);Refresh();
     }
 }
