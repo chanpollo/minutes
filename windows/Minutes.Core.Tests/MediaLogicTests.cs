@@ -32,3 +32,16 @@ public sealed class MediaLogicTests
         finally{File.Delete(file);}
     }
 }
+
+public sealed class CompatibilityTests
+{
+    [Fact] public void AttachmentLinksDecodeSpacesAndRejectTraversal()
+    {
+        Assert.Equal("![](attachments/Slide%20%281%29.png)",Attachments.Line("Slide (1).png"));
+        Assert.Equal(new[]{"attachments/Slide (1).png"},Attachments.Referenced("![](attachments/Slide%20%281%29.png) ![](attachments/%2e%2e/secret.png) ![](attachments/.hidden)"));
+    }
+    [Fact] public void LeakCorrelationFindsLagAndRejectsConstantOrShortTracks()
+    {
+        var random=new Random(42);var a=Enumerable.Range(0,300).Select(_=>random.NextDouble()).ToArray();var b=new double[3].Concat(a).ToArray();Assert.True(AudioAnalysis.Leak(a,b)>.99);Assert.Equal(0,AudioAnalysis.Leak(a.Take(50).ToArray(),b));Assert.Equal(0,AudioAnalysis.Leak(new double[300],new double[300]));
+    }
+}

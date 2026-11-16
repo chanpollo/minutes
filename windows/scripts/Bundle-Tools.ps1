@@ -30,7 +30,24 @@ Invoke-WebRequest 'https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/v1.12.15
 Invoke-WebRequest 'https://raw.githubusercontent.com/microsoft/onnxruntime/v1.17.1/LICENSE' -OutFile "$licenses/onnxruntime-LICENSE"
 Copy-Item windows/docs/THIRD-PARTY.md "$licenses/THIRD-PARTY.md"
 if (-not (Test-Path "$tools/whisper-cli.exe")) { throw 'whisper-cli missing from bundle' }
-foreach ($name in @('whisper-cli.exe', 'sherpa-onnx-offline-speaker-diarization.exe')) {
+$flacZip = Join-Path $work 'flac.zip'
+Invoke-WebRequest 'https://github.com/xiph/flac/releases/download/1.5.0/flac-1.5.0-win.zip' -OutFile $flacZip
+if ((Get-FileHash $flacZip -Algorithm SHA256).Hash.ToLowerInvariant() -ne '53f1500f0d6e7c61379d7fee50d4a9f7f504c650009506d9ba015530d76c0dde') { throw 'FLAC checksum mismatch' }
+Expand-Archive $flacZip -DestinationPath $work -Force
+Copy-Item "$work/flac-1.5.0-win/Win64/flac.exe" $tools
+Copy-Item "$work/flac-1.5.0-win/Win64/libFLAC.dll" $tools
+$flacLicense = Join-Path $licenses 'flac'
+New-Item -ItemType Directory -Force $flacLicense | Out-Null
+Copy-Item "$work/flac-1.5.0-win/COPYING.*" $flacLicense
+Copy-Item "$work/flac-1.5.0-win/README-for-these-builds.txt" $flacLicense
+Invoke-WebRequest 'https://github.com/xiph/flac/releases/download/1.5.0/flac-1.5.0.tar.xz' -OutFile "$flacLicense/flac-1.5.0-source.tar.xz"
+$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+$vs = & $vswhere -latest -property installationPath
+$redist = Get-ChildItem (Join-Path $vs 'VC/Redist/MSVC') -Directory | Sort-Object Name -Descending | Select-Object -First 1
+if ($redist) {
+  Get-ChildItem (Join-Path $redist.FullName 'x64') -Recurse -File -Filter '*.dll' | Where-Object { $_.Directory.Name -match 'Microsoft.VC.*.(CRT|OpenMP)$' } | Copy-Item -Destination $tools -Force
+}
+foreach ($name in @('whisper-cli.exe', 'sherpa-onnx-offline-speaker-diarization.exe', 'flac.exe')) {
   & (Join-Path $tools $name) --help *> (Join-Path $work "$name-help.txt")
   if ($LASTEXITCODE -notin @(0, 1)) { throw "$name failed to load: $LASTEXITCODE" }
 }

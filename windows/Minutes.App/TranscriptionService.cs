@@ -1,5 +1,6 @@
 using Minutes.Core;
 using NAudio.Wave;
+using NAudio.Wave.SampleProviders;
 using System.Globalization;
 
 namespace Minutes.App;
@@ -19,12 +20,12 @@ public sealed class TranscriptionService(AppSettings settings)
         var scratch=Path.Combine(AppSettings.Support,"transcription",Guid.NewGuid().ToString("N"));Directory.CreateDirectory(scratch);
         try
         {
-            var perTrack=new List<IReadOnlyList<TranscriptLine>>();var names=new List<string>();var duration=0d;
+            var perTrack=new List<IReadOnlyList<TranscriptLine>>();var retries=new List<IReadOnlyList<(double From,double To)>>();var audioPaths=new List<string>();var names=new List<string>();var duration=0d;
             foreach(var (name,label) in new[]{("me","Me"),("others","Others")})
             {
                 var source=new[]{".flac",".wav"}.Select(ext=>Path.Combine(folder,name+ext)).FirstOrDefault(File.Exists);if(source==null)continue;
-                var audio=Path.Combine(scratch,name+Path.GetExtension(source));File.Copy(source,audio);var seconds=Seconds(audio);duration=Math.Max(duration,seconds);names.Add(label);
-                if(seconds<1){perTrack.Add([]);continue;}
+                var audio=Path.Combine(scratch,name+Path.GetExtension(source));File.Copy(source,audio);var seconds=Seconds(audio);duration=Math.Max(duration,seconds);names.Add(label);audioPaths.Add(audio);
+                if(seconds<1){perTrack.Add([]);retries.Add([]);continue;}
                 progress?.Report("Transcribing "+label);
                 IReadOnlyList<SpeakerSegment> segments=[];
                 if(settings.SeparateSpeakers&&(name=="others"||Modes.SeparatesMic(meta))&&ModelStore.All.Where(m=>!m.Transcription).All(m=>new ModelStore(Models).Present(m)))
@@ -48,15 +49,38 @@ public sealed class TranscriptionService(AppSettings settings)
                 if(whisper.Status!=0)throw new IOException("whisper-cli: "+whisper.ErrorTail);
                 var lines=Transcripts.ParseWhisper(await File.ReadAllBytesAsync(output+".json",cancel),split?t=>Diarizer.SpeakerAt(t,segments):null);
                 if(split)lines=lines.Select(l=>l with{Voice=l.Voice??Diarizer.SpeakerAt(l.Start,segments,double.PositiveInfinity)}).ToArray();
-                perTrack.Add(TranscriptCleaner.Clean(lines).Lines);
+                var cleaned=await Task.Run(()=>TranscriptCleaner.Clean(lines,(from,to)=>
+                {
+                    cancel.ThrowIfCancellationRequested();progress?.Report("Repairing transcript · "+label+" · "+Transcripts.Clock(from));
+                    var slice=Path.Combine(scratch,name+"-"+((int)from).ToString(CultureInfo.InvariantCulture)+"-"+((int)to).ToString(CultureInfo.InvariantCulture));
+                    using(var reader=new AudioFileReader(audio)){var range=new OffsetSampleProvider(reader){SkipOver=TimeSpan.FromSeconds(from),Take=TimeSpan.FromSeconds(to-from)};WaveFileWriter.CreateWaveFile16(slice+".wav",range);}
+                    var args=argsWhisper.ToArray();args[Array.IndexOf(args,"-f")+1]=slice+".wav";args[Array.IndexOf(args,"-of")+1]=slice;args[Array.IndexOf(args,"-mc")+1]="0";
+                    var result=ToolProcess.RunAsync(Tool("whisper-cli"),args,"",scratch,TimeSpan.FromHours(3),cancel).GetAwaiter().GetResult();
+                    if(result.Status!=0)throw new IOException("Second whisper pass failed: "+result.ErrorTail);
+                    var again=Transcripts.ParseWhisper(File.ReadAllBytes(slice+".json"),split?t=>Diarizer.SpeakerAt(t+from,segments):null).Select(l=>l with{Start=l.Start+from,End=l.End+from}).ToArray();
+                    return split?again.Select(l=>l with{Voice=l.Voice??Diarizer.SpeakerAt(l.Start,segments,double.PositiveInfinity)}).ToArray():again;
+                }),cancel);
+                perTrack.Add(cleaned.Lines);retries.Add(cleaned.Retried);
             }
-            if(names.IndexOf("Me") is var me&&me>=0&&names.IndexOf("Others") is var others&&others>=0)perTrack[me]=TranscriptCleaner.Dedupe(perTrack[me],perTrack[others]).Kept;
+            if(names.IndexOf("Me") is var me&&me>=0&&names.IndexOf("Others") is var others&&others>=0)
+            {
+                var leaks=await Task.Run(()=>AudioAnalysis.Leak(Envelope(audioPaths[me]),Envelope(audioPaths[others]))>=AudioAnalysis.LeakThreshold,cancel);
+                var mic=leaks?TranscriptCleaner.DropLeak(perTrack[me],perTrack[others],retries[me]).Kept:perTrack[me];perTrack[me]=TranscriptCleaner.Dedupe(mic,perTrack[others]).Kept;
+            }
             var heard=perTrack.SelectMany((lines,track)=>lines.Select(line=>(Track:track,Line:line))).OrderBy(x=>x.Line.Start).ToArray();
             var labels=Transcripts.Labels(heard.Select(h=>(h.Track,h.Line.Voice)).ToArray(),names);
             var rendered=Transcripts.Render(heard.Select((h,i)=>new NamedLine(h.Line.Start,labels[i],h.Line.Text)).ToArray(),meta.Title,meta.StartedAt,duration);
-            JsonFiles.AtomicWrite(Path.Combine(folder,"transcript.md"),rendered);meta.TranscriptError=null;Workspace.WriteMeta(folder,meta);
+            JsonFiles.AtomicWrite(Path.Combine(folder,"transcript.md"),rendered);var current=Workspace.ReadMeta(folder)??meta;current.TranscriptError=null;Workspace.WriteMeta(folder,current);
+            if(settings.CompressAudio)await AudioCompression.CompressAsync(folder,cancel);
         }
-        catch(Exception e)when(e is not OperationCanceledException){meta.TranscriptError=e.Message;Workspace.WriteMeta(folder,meta);throw;}
+        catch(Exception e)when(e is not OperationCanceledException){var current=Workspace.ReadMeta(folder)??meta;current.TranscriptError=e.Message;Workspace.WriteMeta(folder,current);throw;}
         finally{Directory.Delete(scratch,true);}
     }
+    private static IReadOnlyList<double> Envelope(string file)
+    {
+        using var reader=new AudioFileReader(file);var window=reader.WaveFormat.SampleRate/10;var buffer=new float[window];var result=new List<double>();
+        while(reader.Read(buffer,0,window)==window){double squares=0;foreach(var sample in buffer)squares+=(double)sample*sample;result.Add(Math.Log(Math.Sqrt(squares/window)+1e-6));}
+        return result;
+    }
+
 }
