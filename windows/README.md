@@ -2,6 +2,12 @@
 
 .NET 8 / WinUI 3 port of macOS 0.7.0. Windows version: **1.0.0**. Full feature parity is not yet achieved. See [PARITY.md](docs/PARITY.md) for implemented and missing behavior, and [TESTING.md](docs/TESTING.md) before trying the unsigned app.
 
+## Install the download
+
+Download [Minutes-1.0.0-win-x64.zip](https://github.com/chanpollo/minutes/releases/download/v1.0.0/Minutes-1.0.0-win-x64.zip), choose **Extract All**, and run **Minutes.App.exe** from the extracted folder. Keep all files together. No .NET SDK or Visual Studio is needed for the published ZIP. The app is unsigned and speech models download on first launch.
+
+See the [installation guide](../README.md#install) for requirements, first-run setup and summary providers.
+
 ## Portable tests (macOS, Linux, Windows)
 
 Install a .NET 8 SDK, then:
