@@ -56,3 +56,15 @@ public sealed class SpeakerRenameTests
     [Theory][InlineData("bad\nname")][InlineData("bad:name")][InlineData(" ")]
     public void RefusesNamesThatBreakTranscriptMarkers(string name)=>Assert.Throws<ArgumentException>(()=>Transcripts.RenameSpeaker("","Me",name));
 }
+
+public sealed class SwiftDateTests
+{
+    [Fact] public void DatesWriteWholeSecondsInUtcForSwiftDecoder()
+    {
+        var text=System.Text.Json.JsonSerializer.Serialize(new MeetingMeta{StartedAt=DateTimeOffset.Parse("2026-10-30T14:00:00.1234567+07:00")},JsonFiles.Options);Assert.Contains("\"startedAt\": \"2026-10-30T07:00:00Z\"",text);Assert.DoesNotContain("1234567",text);
+    }
+    [Fact] public void IncompleteMetaIsNotInventedAsNewMeeting()
+    {
+        var root=Path.Combine(Path.GetTempPath(),"minutes-invalid-"+Guid.NewGuid());Directory.CreateDirectory(root);try{File.WriteAllText(Path.Combine(root,"meta.json"),"{}");Assert.Null(Workspace.ReadMeta(root));}finally{Directory.Delete(root,true);}
+    }
+}

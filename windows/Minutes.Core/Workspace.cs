@@ -60,6 +60,7 @@ public static class JsonFiles
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         WriteIndented = true,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        Converters = { new SwiftDateConverter() },
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
     public static T? Read<T>(string path) => JsonSerializer.Deserialize<T>(File.ReadAllText(path), Options);
@@ -92,7 +93,9 @@ public sealed class Workspace(string root)
     }
     public static MeetingMeta? ReadMeta(string folder)
     {
-        try { var m = JsonFiles.Read<MeetingMeta>(Path.Combine(folder, "meta.json")); if (m != null && m.Mode != null) m.Mode = Modes.Read(m.Mode); return m; }
+        try { using var document=JsonDocument.Parse(File.ReadAllText(Path.Combine(folder,"meta.json")));var value=document.RootElement;
+            if(!value.TryGetProperty("id",out var id)||id.ValueKind!=JsonValueKind.String||!value.TryGetProperty("title",out var title)||title.ValueKind!=JsonValueKind.String||!value.TryGetProperty("startedAt",out var started)||started.ValueKind!=JsonValueKind.String)return null;
+            var m = JsonFiles.Read<MeetingMeta>(Path.Combine(folder, "meta.json")); if (m != null && m.Mode != null) m.Mode = Modes.Read(m.Mode); return m; }
         catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException) { return null; }
     }
     public static void WriteMeta(string folder, MeetingMeta meta) => JsonFiles.Write(Path.Combine(folder, "meta.json"), meta);
