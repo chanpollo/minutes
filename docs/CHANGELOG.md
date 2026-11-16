@@ -2,6 +2,10 @@
 
 Newest first. One heading per build: `## <version> (<build>) — <date>`. build.sh copies this file into the app; About Minutes reads it.
 
+## 1.0.0 (20) — 2026-11-16
+- Align the macOS version with Windows 1.0.0. This version change does not add iOS support or imply Windows feature parity.
+- Add a platform overview, download links and step-by-step installation instructions for Windows and macOS to the README.
+
 ## 0.7.0 (19) — 2026-11-16
 - Sign In… on a summary provider in Settings that is installed but not signed in: it opens Terminal on that tool's own sign-in (claude auth login, codex login, or agy's Google sign-in), and the card shows Signed in when you come back.
 

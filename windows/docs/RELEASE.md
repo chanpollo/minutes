@@ -1,4 +1,4 @@
-Windows 1.0.0 is the first numbered Windows release of Minutes, built with .NET 8 and WinUI 3. The macOS app remains at 0.7.0.
+Windows 1.0.0 is the first numbered Windows release of Minutes, built with .NET 8 and WinUI 3. The macOS source version is also 1.0.0; its DMG is packaged separately.
 
 Download Minutes-1.0.0-win-x64.zip, extract the entire folder, and run Minutes.App.exe. The ZIP is unsigned. Windows 10/11 x64 is required; app-specific audio capture requires build 20348 or later, with whole-system capture as fallback. Speech models download on first run. Summary-provider CLIs and Google OAuth credentials are user-supplied.
 
