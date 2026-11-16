@@ -150,6 +150,12 @@ public sealed class StorageTests : IDisposable
 }
 public sealed class PromptTests
 {
+    public static IEnumerable<object[]> SwiftPrompts() => JsonSerializer.Deserialize<Dictionary<string,string>>(File.ReadAllText(Path.Combine(AppContext.BaseDirectory,"Fixtures","swift-summary-prompts.json")))!.Select(p=>new object[]{p.Key,p.Value});
+    [Theory][MemberData(nameof(SwiftPrompts))]
+    public void PromptExactlyMatchesSwift(string key,string expected)
+    {
+        var p=key.Split('-');Assert.Equal(expected,SummaryPrompts.Prompt(p[0],bool.Parse(p[1]),bool.Parse(p[2]),bool.Parse(p[3])));
+    }
     [Theory][InlineData("thai","## สรุป")][InlineData("english","## Summary")][InlineData("meeting","Second copy")]
     public void LanguageAndSections(string language,string expected) { var p=SummaryPrompts.Prompt(language);Assert.Contains(expected,p);Assert.DoesNotContain("\\(w.",p);Assert.Contains("Never guess an owner",p); }
     [Fact] public void OptionalPromptRules() { var p=SummaryPrompts.Prompt(voice:true,events:true,pictures:true);Assert.Contains("Event: <number>",p);Assert.Contains("Voice mode",p);Assert.Contains("up to 6",p); }
