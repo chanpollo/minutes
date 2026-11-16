@@ -60,3 +60,10 @@ For each step record pass/fail/not implemented, artifact SHA, OS/device setup an
 3. Disconnect the model download after a partial file exists, retry, and verify HTTP Range resume still ends with the pinned SHA-256. A server ignoring Range must restart safely.
 4. Interrupt a Drive upload after a committed chunk but before its response. The retry must probe the server offset, resume at that offset and return one file ID. Rename a meeting within the same group; its Drive parent must stay unchanged.
 5. Stop recording after a screen-capture error. The audio must still be finalized and transcribed. A failed audio stop must retain staging for recovery and re-enable the recording controls.
+
+## Playback and maintenance regressions
+
+1. Open a Voice meeting with synthetic speech in both Me and Others tracks. Verify both voices play, then switch meetings rapidly; no audio from the previous selection should replace the current player. Repeat with WAV and FLAC.
+2. Launch Minutes twice, including while hidden in the tray. Exactly one normal UI instance should remain and the existing window should open. Separately verify --transcribe and --summarize still accept only their specified folder.
+3. Hold one expired audio file open without delete sharing, then run retention. Other eligible files should still be removed and their deletion markers saved; the held track and transcript must remain.
+4. Rename or move a meeting within the workspace during transcription. The result should follow its metadata ID and use the latest title. Delete the meeting during transcription; it must not be recreated.

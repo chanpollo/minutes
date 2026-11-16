@@ -43,9 +43,9 @@ State vocabulary: **built** = implementation exists; **CI tested** = exercised b
 | Retention launch/every 6h, 90-day video, audio only after transcript (`Housekeeping`) | Portable retention plan and deletion | Built; retention tests local; timer wired; verified lossless compression built; synced retention deletion pending |
 | Menu bar / Dock / hotkey / startup | Shell_NotifyIcon, Ctrl+Alt+R RegisterHotKey, notification menu; unpackaged startup via HKCU Run | Built; PC required; animated recording/levels/menu parity pending |
 | About version, build, changelog (`AppVersion`, `Changelog`) | Version 0.7.0, bundled changelog parser | Parser tested; CI build/commit/time, first-opened time, changelog and copy report built; PC required |
-| UI defaults / Reduce Motion / audio exclusivity | WinUI Fluent defaults; system controls; stop playback before recording | Basic shell built; PC accessibility/motion and complete playback arbitration pending |
+| UI defaults / Reduce Motion / audio exclusivity | WinUI Fluent defaults; system controls; stop playback before recording | Basic shell and mixed Me/Others voice playback cache built; PC accessibility/motion and complete playback arbitration pending |
 | --transcribe / --summarize only specified folder (`main`) | CLI dispatch before window creation; operates only on the given folder | Built and compiled on CI; Windows CLI verification required |
-| Recovery after crash / retry model jobs | Repair interrupted WAV headers, recover staging, preserve recorded-note identity, retry missing-model jobs | Built; fault-injection PC verification required |
+| Recovery after crash / retry model jobs | Repair interrupted WAV headers, recover staging, preserve recorded-note identity, retry missing-model jobs | Built; normal UI is single-instance while CLI jobs remain independent; fault-injection PC verification required |
 
 ## Platform decisions
 
@@ -60,7 +60,7 @@ State vocabulary: **built** = implementation exists; **CI tested** = exercised b
 - Base contains no Windows project or .NET tests.
 - Local SDK 8.0.428 installed into a user directory after Homebrew's cask installer failed at sudo.
 - First green CI: https://github.com/chanpollo/minutes/actions/runs/43866075484 at `111cbab`, 95/95 on Windows, WinUI build/publish, bundled engines and uploaded ZIP. Draft PR: https://github.com/chanpollo/minutes/pull/4.
-- Current local gate: 142/142 on macOS (includes OAuth/PKCE, retention, frame selection, Thai numbers/time and briefing cleanup). Latest Windows validation is linked from the draft PR; test counts and hardware evidence remain separate.
+- Current local gate: 147/147 on macOS (includes OAuth/PKCE, retention, frame selection, Thai numbers/time and briefing cleanup). Latest Windows validation is linked from the draft PR; test counts and hardware evidence remain separate.
 - All 24 summary prompt variants match output generated directly from baseline Swift. Windows checkout line endings are normalized before loading embedded prompts.
 
 ## Remaining implementation gates
@@ -82,4 +82,4 @@ Run `dotnet test windows/Minutes.Core.Tests/Minutes.Core.Tests.csproj`, then on 
 
 Process-loopback minimum version: [Microsoft application loopback sample](https://learn.microsoft.com/en-us/samples/microsoft/windows-classic-samples/applicationloopbackaudio-sample/). Capture interop: [Microsoft CreateForWindow contract](https://learn.microsoft.com/windows/win32/api/windows.graphics.capture.interop/nf-windows-graphics-capture-interop-igraphicscaptureiteminterop-createforwindow).
 
-The portable suite additionally covers cross-volume staging publication, corrupt optional JSON, legacy comment reply migration, server range mismatch/restart, failed second-pass repair, upload status probing and same-group Drive rename. The suite was last run with `dotnet test windows/Minutes.Core.Tests/Minutes.Core.Tests.csproj --nologo` (142/142). Mac app tests were not run: protected Mac files are unchanged.
+The portable suite additionally covers cross-volume staging publication, corrupt optional JSON, legacy comment reply migration, server range mismatch/restart, failed second-pass repair, upload status probing and same-group Drive rename, legacy-note classification and per-file retention failures. The suite was last run with `dotnet test windows/Minutes.Core.Tests/Minutes.Core.Tests.csproj --nologo` (147/147). Mac app tests were not run: protected Mac files are unchanged.
