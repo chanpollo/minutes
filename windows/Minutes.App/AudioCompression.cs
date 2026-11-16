@@ -20,6 +20,8 @@ internal static class AudioCompression
                 if (result.Status != 0 || !SameSamples(wav, verified) || new FileInfo(encoded).Length >= new FileInfo(wav).Length) continue;
                 File.Move(encoded, Path.Combine(folder, name + ".flac"), true); File.Delete(wav);
             }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception) {/* Optional compression must leave a usable transcript and WAV. */}
             finally { Directory.Delete(work, true); }
         }
     }

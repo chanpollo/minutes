@@ -13,16 +13,18 @@ public sealed class TranscriptionService(AppSettings settings)
         var path = Path.Combine(AppContext.BaseDirectory, "tools", name + ".exe"); return File.Exists(path) ? path : throw new IOException(name + " is missing from this installation");
     }
     private static double Seconds(string file) { using var reader = new AudioFileReader(file); return reader.TotalTime.TotalSeconds; }
-    public async Task TranscribeAsync(string folder, IProgress<string>? progress = null, CancellationToken cancel = default)
+    public async Task TranscribeAsync(string folder, IProgress<string>? progress = null, CancellationToken cancel = default,bool followRenames=true)
     {
-        var meta = Workspace.ReadMeta(folder) ?? throw new IOException("Meeting metadata missing"); if (meta.IsNote) return;
+        var meta = Workspace.ReadMeta(folder) ?? throw new IOException("Meeting metadata missing"); if (Workspace.IsNote(folder, meta)) return;
         if (!new ModelStore(Models).Present(ModelStore.All[1])) throw new IOException("Speech model missing; choose Download Speech Models in Settings");
+        string Current()=>followRenames?new Workspace(settings.WorkspacePath).Find(meta.Id)?.Folder??folder:folder;
         var scratch = Path.Combine(AppSettings.Support, "transcription", Guid.NewGuid().ToString("N")); Directory.CreateDirectory(scratch);
         try
         {
             var perTrack = new List<IReadOnlyList<TranscriptLine>>(); var retries = new List<IReadOnlyList<(double From, double To)>>(); var audioPaths = new List<string>(); var names = new List<string>(); var duration = 0d;
             foreach (var (name, label) in new[] { ("me", "Me"), ("others", "Others") })
             {
+                folder=Current();
                 var source = new[] { ".flac", ".wav" }.Select(ext => Path.Combine(folder, name + ext)).FirstOrDefault(File.Exists); if (source == null) continue;
                 var audio = Path.Combine(scratch, name + Path.GetExtension(source)); File.Copy(source, audio); var seconds = Seconds(audio); duration = Math.Max(duration, seconds); names.Add(label); audioPaths.Add(audio);
                 if (seconds < 1) { perTrack.Add([]); retries.Add([]); continue; }
@@ -69,12 +71,14 @@ public sealed class TranscriptionService(AppSettings settings)
             }
             var heard = perTrack.SelectMany((lines, track) => lines.Select(line => (Track: track, Line: line))).OrderBy(x => x.Line.Start).ToArray();
             var labels = Transcripts.Labels(heard.Select(h => (h.Track, h.Line.Voice)).ToArray(), names);
-            var rendered = Transcripts.Render(heard.Select((h, i) => new NamedLine(h.Line.Start, labels[i], h.Line.Text)).ToArray(), meta.Title, meta.StartedAt, duration);
+            folder=Current();if(!Directory.Exists(folder))throw new IOException("The meeting was removed while transcribing");
+            var currentMeta=Workspace.ReadMeta(folder)??meta;
+            var rendered = Transcripts.Render(heard.Select((h, i) => new NamedLine(h.Line.Start, labels[i], h.Line.Text)).ToArray(), currentMeta.Title, meta.StartedAt, duration);
             JsonFiles.AtomicWrite(Path.Combine(folder, "transcript.md"), rendered); var current = Workspace.ReadMeta(folder) ?? meta; current.TranscriptError = null; Workspace.WriteMeta(folder, current);
             if (File.Exists(Path.Combine(folder, "comments.json"))) CommentFiles.Save(folder, CommentFiles.Read(folder), current.Title);
             if (settings.CompressAudio) await AudioCompression.CompressAsync(folder, cancel);
         }
-        catch (Exception e) when (e is not OperationCanceledException) { var current = Workspace.ReadMeta(folder) ?? meta; current.TranscriptError = e.Message; Workspace.WriteMeta(folder, current); throw; }
+        catch (Exception e) when (e is not OperationCanceledException) { folder=Current();if(!Directory.Exists(folder))throw;var current = Workspace.ReadMeta(folder) ?? meta; current.TranscriptError = e.Message; Workspace.WriteMeta(folder, current); throw; }
         finally { Directory.Delete(scratch, true); }
     }
     private static IReadOnlyList<double> Envelope(string file)

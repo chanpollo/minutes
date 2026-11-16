@@ -146,6 +146,7 @@ public sealed class Workspace(string root)
             return new(folder, meta);
         }
     }
+    public static bool IsNote(string folder,MeetingMeta meta)=>meta.IsNote&&!new[]{"transcript.md","meeting.mp4","me.wav","others.wav","me.flac","others.flac"}.Any(name=>File.Exists(Path.Combine(folder,name)));
     public static string? Retitled(string text, string old, string title)
     {
         var head = "# " + old;

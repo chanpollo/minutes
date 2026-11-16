@@ -42,7 +42,7 @@ internal sealed class VideoRecorder : IAsyncDisposable
     }
     public async Task StartAsync(string folder, System.Diagnostics.Stopwatch clock)
     {
-        screenFile = Path.Combine(folder, "screen.mp4");
+        screenFile = Path.Combine(folder, "screen.mov");
         pool = Direct3D11CaptureFramePool.CreateFreeThreaded(device, DirectXPixelFormat.B8G8R8A8UIntNormalized, 3, item.Size);
         pool.FrameArrived += (sender, _) =>
         {
@@ -75,7 +75,7 @@ internal sealed class VideoRecorder : IAsyncDisposable
             finally { deferral.Complete(); }
         };
         var directory = await StorageFolder.GetFolderFromPathAsync(folder);
-        var file = await directory.CreateFileAsync("screen.mp4", CreationCollisionOption.ReplaceExisting);
+        var file = await directory.CreateFileAsync("screen.mov", CreationCollisionOption.ReplaceExisting);
         var stream = await file.OpenAsync(FileAccessMode.ReadWrite);
         var profile = Profile(item.Size.Width, item.Size.Height, fps, quality);
         var transcoder = new MediaTranscoder { HardwareAccelerationEnabled = true };

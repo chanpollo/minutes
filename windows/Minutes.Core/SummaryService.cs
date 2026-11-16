@@ -91,7 +91,7 @@ public sealed class SummaryService : IDisposable
     {
         if (providerOff) throw new InvalidOperationException("Summaries are off. Choose a provider under Summary in Settings.");
         var meta = Workspace.ReadMeta(folder) ?? throw new IOException("Meeting metadata missing");
-        if (meta.IsNote) throw new InvalidOperationException("Record this note before summarising it");
+        if (Workspace.IsNote(folder,meta)) throw new InvalidOperationException("Record this note before summarising it");
         if (meta.Confidential == true && !force) throw new InvalidOperationException("Marked confidential, so it was not sent for summary.");
         var transcript = await File.ReadAllTextAsync(Path.Combine(folder, "transcript.md"), cancel);
         var frames = File.Exists(Path.Combine(folder, "frames", "frames.json")) ? JsonFiles.TryRead<VideoFrame[]>(Path.Combine(folder, "frames", "frames.json")) ?? [] : [];

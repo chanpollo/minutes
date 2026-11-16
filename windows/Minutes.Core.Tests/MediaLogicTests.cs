@@ -118,3 +118,24 @@ public sealed class CommentMigrationTests
         var folder=Path.Combine(Path.GetTempPath(),"minutes-comment-"+Guid.NewGuid());Directory.CreateDirectory(folder);File.WriteAllText(Path.Combine(folder,"comments.json"),"[{}]");try{Assert.Empty(CommentFiles.Read(folder));}finally{Directory.Delete(folder,true);}
     }
 }
+
+public sealed class NoteClassificationTests
+{
+    [Theory][InlineData("me.wav")][InlineData("others.flac")][InlineData("meeting.mp4")][InlineData("transcript.md")]
+    public void ExistingRecordingWinsOverLegacyNoteFlag(string file)
+    {
+        var root=Path.Combine(Path.GetTempPath(),"minutes-note-"+Guid.NewGuid());Directory.CreateDirectory(root);var meta=new MeetingMeta{Note=true};
+        try{Assert.True(Workspace.IsNote(root,meta));File.WriteAllText(Path.Combine(root,file),"synthetic");Assert.False(Workspace.IsNote(root,meta));Assert.Equal("screen",meta.RecordMode);}
+        finally{Directory.Delete(root,true);}
+    }
+}
+
+public sealed class RetentionFailureTests
+{
+    [Fact] public void LockedTrackDoesNotLoseSuccessfulDeletionMarkers()
+    {
+        var root=Path.Combine(Path.GetTempPath(),"minutes-retention-"+Guid.NewGuid());var workspace=new Workspace(root);var meeting=workspace.MakeNote();var now=DateTimeOffset.Parse("2026-10-30T10:00:00Z");workspace.Update(meeting.Folder,m=>{m.Mode="screen";m.Note=false;m.StartedAt=now.AddDays(-91);m.EndedAt=now.AddDays(-91);});foreach(var n in new[]{"meeting.mp4","me.wav","others.wav","transcript.md"})File.WriteAllText(Path.Combine(meeting.Folder,n),"synthetic");
+        try{Housekeeping.Run(workspace,now,new(90,90),delete:path=>{if(Path.GetFileName(path)=="others.wav")throw new IOException("synthetic lock");File.Delete(path);});var meta=Workspace.ReadMeta(meeting.Folder)!;Assert.Equal(now,meta.VideoDeletedAt);Assert.Equal(now,meta.AudioDeletedAt);Assert.True(File.Exists(Path.Combine(meeting.Folder,"others.wav")));Assert.True(File.Exists(Path.Combine(meeting.Folder,"transcript.md")));}
+        finally{Directory.Delete(root,true);}
+    }
+}
