@@ -24,15 +24,11 @@ public sealed class ModelStore(string modelsDir)
         foreach (var model in All.Where(m => speakers || m.Transcription).Where(m => !Present(m)))
         {
             var part = Path.Combine(modelsDir, Path.GetFileName(new Uri(model.Source).AbsolutePath) + ".part"); var scratch = Path.Combine(modelsDir, ".extract-" + Guid.NewGuid());
+            var installed=false;
             try
             {
                 progress?.Report("Downloading " + model.File);
-                using (var response = await client.GetAsync(model.Source, HttpCompletionOption.ResponseHeadersRead, cancel))
-                {
-                    response.EnsureSuccessStatusCode(); await using var source = await response.Content.ReadAsStreamAsync(cancel); await using var output = System.IO.File.Create(part);
-                    var buffer = new byte[1024 * 1024]; long done = 0; int n;
-                    while ((n = await source.ReadAsync(buffer, cancel)) > 0) { await output.WriteAsync(buffer.AsMemory(0, n), cancel); done += n; progress?.Report($"Downloading {Path.GetFileName(model.File)} · {done / 1000000} MB"); }
-                }
+                await ResumableDownload.FetchAsync(client,model.Source,part,new Progress<long>(done=>progress?.Report($"Downloading {Path.GetFileName(model.File)} · {done/1000000} MB")),cancel);
                 var install = part;
                 if (model.ArchiveSha256 != null)
                 {
@@ -43,9 +39,10 @@ public sealed class ModelStore(string modelsDir)
                 }
                 await VerifyAsync(install, model.Sha256, cancel);
                 if (new FileInfo(install).Length != model.Size) throw new InvalidDataException("Model size mismatch");
-                var target = Path.Combine(modelsDir, model.File); Directory.CreateDirectory(Path.GetDirectoryName(target)!); System.IO.File.Move(install, target, true);
+                var target = Path.Combine(modelsDir, model.File); Directory.CreateDirectory(Path.GetDirectoryName(target)!); System.IO.File.Move(install, target, true);installed=true;
             }
-            finally { if (System.IO.File.Exists(part)) System.IO.File.Delete(part); if (Directory.Exists(scratch)) Directory.Delete(scratch, true); }
+            catch(InvalidDataException){if(System.IO.File.Exists(part))System.IO.File.Delete(part);throw;}
+            finally { if(installed&&System.IO.File.Exists(part)) System.IO.File.Delete(part); if (Directory.Exists(scratch)) Directory.Delete(scratch, true); }
         }
     }
 }

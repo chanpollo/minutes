@@ -61,10 +61,34 @@ public sealed class SwiftDateTests
 {
     [Fact] public void DatesWriteWholeSecondsInUtcForSwiftDecoder()
     {
-        var text=System.Text.Json.JsonSerializer.Serialize(new MeetingMeta{StartedAt=DateTimeOffset.Parse("2026-10-30T14:00:00.1234567+07:00")},JsonFiles.Options);Assert.Contains("\"startedAt\": \"2026-10-30T07:00:00Z\"",text);Assert.DoesNotContain("1234567",text);
+        var text=System.Text.Json.JsonSerializer.Serialize(new MeetingMeta{StartedAt=DateTimeOffset.Parse("2026-10-30T14:00:00.1234567+07:00")},JsonFiles.Options);Assert.Contains("\"startedAt\": \"2026-10-30T07:00:00Z\"",text);Assert.DoesNotContain("1234567",text);File.WriteAllText(Path.Combine(AppContext.BaseDirectory,"interop-meta.json"),text);
     }
     [Fact] public void IncompleteMetaIsNotInventedAsNewMeeting()
     {
         var root=Path.Combine(Path.GetTempPath(),"minutes-invalid-"+Guid.NewGuid());Directory.CreateDirectory(root);try{File.WriteAllText(Path.Combine(root,"meta.json"),"{}");Assert.Null(Workspace.ReadMeta(root));}finally{Directory.Delete(root,true);}
+    }
+}
+
+public sealed class DirectoryTransferTests
+{
+    [Fact] public void CrossVolumeFallbackPublishesWholeTreeBeforeRemovingStaging()
+    {
+        var root=Path.Combine(Path.GetTempPath(),"minutes-transfer-"+Guid.NewGuid());var source=Path.Combine(root,"staging");var target=Path.Combine(root,"workspace","meeting");Directory.CreateDirectory(Path.Combine(source,"frames"));File.WriteAllText(Path.Combine(source,"meta.json"),"synthetic");File.WriteAllText(Path.Combine(source,"frames","00-00-01.jpg"),"synthetic");
+        try{DirectoryTransfer.CopyThenMove(source,target);Assert.False(Directory.Exists(source));Assert.Equal("synthetic",File.ReadAllText(Path.Combine(target,"frames","00-00-01.jpg")));Assert.DoesNotContain(Directory.GetDirectories(Path.GetDirectoryName(target)!),p=>Path.GetFileName(p).StartsWith('.'));}
+        finally{Directory.Delete(root,true);}
+    }
+    [Fact] public void ExistingDestinationIsNeverOverwritten()
+    {
+        var root=Path.Combine(Path.GetTempPath(),"minutes-transfer-"+Guid.NewGuid());var source=Path.Combine(root,"source");var target=Path.Combine(root,"target");Directory.CreateDirectory(source);Directory.CreateDirectory(target);
+        try{Assert.Throws<IOException>(()=>DirectoryTransfer.CopyThenMove(source,target));Assert.True(Directory.Exists(source));}
+        finally{Directory.Delete(root,true);}
+    }
+}
+
+public sealed class RepairFailureTests
+{
+    [Fact] public void FailedSecondPassKeepsCleanedFirstPass()
+    {
+        var result=TranscriptCleaner.Clean([new(1,2,"a long sentence"),new(3,4,"a long sentence"),new(5,6,"a long sentence")],(_,_)=>throw new TimeoutException("synthetic timeout"));Assert.Single(result.Lines);Assert.Empty(result.Retried);
     }
 }

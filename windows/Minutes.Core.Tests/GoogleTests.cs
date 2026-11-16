@@ -30,3 +30,45 @@ public sealed class GoogleTests
     [Fact] public void QueryDecodedAndDuplicateLastWins()
     {var query=GoogleOAuth.ParseQuery("?state=wrong&state=right&code=synthetic%2Bcode+value");Assert.Equal("right",query["state"]);Assert.Equal("synthetic+code value",query["code"]);}
 }
+
+public sealed class DriveBoundaryTests
+{
+    private sealed class Tokens:ITokenStore{public string? Read()=>"synthetic-refresh";public void Save(string value){}public void Delete(){}}
+    private sealed class Handler(Func<HttpRequestMessage,HttpResponseMessage> respond):HttpMessageHandler
+    {protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken cancel)=>Task.FromResult(respond(request));}
+    private static HttpResponseMessage Json(string body)=>new(HttpStatusCode.OK){Content=new StringContent(body)};
+    [Fact] public async Task LostChunkResponseProbesAndResumesAtServerOffset()
+    {
+        var root=Path.Combine(Path.GetTempPath(),"minutes-drive-"+Guid.NewGuid());var workspace=new Workspace(root);var meeting=workspace.MakeNote();File.WriteAllText(Path.Combine(meeting.Folder,"notes.md"),"synthetic");
+        workspace.Update(meeting.Folder,m=>m.Drive=System.Text.Json.JsonSerializer.SerializeToElement(new GoogleDriveSync.State{FolderID="folder",FolderName=Path.GetFileName(meeting.Folder)},JsonFiles.Options));
+        var ranges=new List<string>();
+        using var http=new HttpClient(new Handler(request=>
+        {
+            var url=request.RequestUri!.AbsoluteUri;
+            if(url.Contains("/token",StringComparison.Ordinal))return Json("{\"access_token\":\"synthetic-access\",\"expires_in\":3600}");
+            if(url.Contains("?fields=files",StringComparison.Ordinal))return Json("{\"files\":[{\"id\":\"root\"}]}");
+            if(url.Contains("fields=trashed",StringComparison.Ordinal))return Json("{\"trashed\":false}");
+            if(url.Contains("uploadType=resumable",StringComparison.Ordinal)){var result=Json("{}");result.Headers.Location=new Uri("https://www.googleapis.com/upload/session/synthetic");return result;}
+            if(url.EndsWith("/session/synthetic",StringComparison.Ordinal))
+            {
+                var range=request.Content!.Headers.GetValues("Content-Range").Single();ranges.Add(range);
+                if(range=="bytes 0-8/9")return new(HttpStatusCode.BadRequest);
+                if(range=="bytes */9"){var response=new HttpResponseMessage((HttpStatusCode)308);response.Headers.TryAddWithoutValidation("Range","bytes=0-3");return response;}
+                Assert.Equal("bytes 4-8/9",range);Assert.Equal("hetic",request.Content.ReadAsStringAsync().GetAwaiter().GetResult());return Json("{\"id\":\"uploaded\"}");
+            }
+            throw new InvalidOperationException("Unexpected synthetic request: "+url);
+        }));
+        try{await new GoogleDriveSync(workspace,new GoogleOAuth("synthetic","synthetic",new Tokens(),http),http).CopyAsync(meeting,new(true,false));Assert.Equal(new[]{"bytes 0-8/9","bytes */9","bytes 4-8/9"},ranges);}
+        finally{Directory.Delete(root,true);}
+    }
+    [Fact] public async Task RenameWithinSameGroupDoesNotRemoveItsParent()
+    {
+        var root=Path.Combine(Path.GetTempPath(),"minutes-drive-"+Guid.NewGuid());var workspace=new Workspace(root);var meeting=workspace.MakeNote();workspace.Update(meeting.Folder,m=>m.Drive=System.Text.Json.JsonSerializer.SerializeToElement(new GoogleDriveSync.State{FolderID="folder",FolderName="Old"},JsonFiles.Options));var patched=false;
+        using var http=new HttpClient(new Handler(request=>
+        {
+            var url=request.RequestUri!.AbsoluteUri;if(url.Contains("/token",StringComparison.Ordinal))return Json("{\"access_token\":\"synthetic\",\"expires_in\":3600}");if(url.Contains("?fields=files",StringComparison.Ordinal))return Json("{\"files\":[{\"id\":\"root\"}]}");if(url.Contains("fields=trashed",StringComparison.Ordinal))return Json("{\"trashed\":false}");if(request.Method==HttpMethod.Patch){Assert.DoesNotContain("Parents",url);patched=true;return Json("{}");}throw new InvalidOperationException("Unexpected request");
+        }));
+        try{await new GoogleDriveSync(workspace,new GoogleOAuth("synthetic","synthetic",new Tokens(),http),http).CopyAsync(meeting,new(false,false));Assert.True(patched);}
+        finally{Directory.Delete(root,true);}
+    }
+}

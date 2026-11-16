@@ -154,7 +154,7 @@ public static class TranscriptCleaner
             {
                 var from = Math.Max(0, marked[span.Start].Original.Start - 5); var to = marked[span.End - 1].Original.End + 5;
                 IReadOnlyList<TranscriptLine> again;
-                try { again = rerun(from, to); } catch (OperationCanceledException) { throw; } catch (IOException) { continue; }
+                try { again = rerun(from, to); } catch (OperationCanceledException) { throw; } catch (Exception) { continue; }
                 result.Retried.Insert(0, (from, to));
                 var before = marked.Take(span.Start).LastOrDefault(m => m.Line != null)?.Original.End ?? 0;
                 var after = marked.Skip(span.End).FirstOrDefault(m => m.Line != null)?.Original.Start ?? double.PositiveInfinity;
