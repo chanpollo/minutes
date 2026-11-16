@@ -15,6 +15,7 @@ public sealed partial class MainWindow : Window
     private Workspace workspace;
     private Meeting? selected;
     private bool loading;
+    private int playerGeneration;
     private readonly System.Net.Http.HttpClient googleHttp = new() { Timeout = TimeSpan.FromMinutes(10) };
     private readonly AudioRecorder recorder = new();
     private VideoRecorder? video;
@@ -86,7 +87,7 @@ public sealed partial class MainWindow : Window
             await CleanupAsync();
             var models = new ModelStore(Path.Combine(AppSettings.Support, "models"));
             if (ModelStore.All.Where(m => settings.SeparateSpeakers || m.Transcription).Any(m => !models.Present(m))) await models.DownloadAsync(settings.SeparateSpeakers, new Progress<string>(s => Status.Message = s));
-            foreach (var m in workspace.Meetings().Where(m => !m.Meta.IsNote && m.Meta.TranscriptError == null && !File.Exists(Path.Combine(m.Folder, "transcript.md")) && new[] { "me.wav", "others.wav", "me.flac", "others.flac" }.Any(n => File.Exists(Path.Combine(m.Folder, n)))))
+            foreach (var m in workspace.Meetings().Where(m => !Workspace.IsNote(m.Folder, m.Meta) && m.Meta.TranscriptError == null && !File.Exists(Path.Combine(m.Folder, "transcript.md")) && new[] { "me.wav", "others.wav", "me.flac", "others.flac" }.Any(n => File.Exists(Path.Combine(m.Folder, n)))))
                 await new TranscriptionService(settings).TranscribeAsync(m.Folder, new Progress<string>(s => Status.Message = s));
             await SyncAllAsync();
         }, "Waiting for a meeting");
@@ -113,9 +114,21 @@ public sealed partial class MainWindow : Window
         loading = true; selected = meeting; MeetingTitle.IsEnabled = recordingFolder == null || meeting.Folder != recordingFolder; MeetingTitle.Text = meeting.Meta.Title; Confidential.IsChecked = meeting.Meta.Confidential == true;
         Notes.Text = Read(meeting.Folder, "notes.md"); Summary.Text = Read(meeting.Folder, "summary.md"); Transcript.Text = Read(meeting.Folder, "transcript.md"); LoadComments();
         Player.MediaPlayer?.Pause();
-        var media = new[] { "meeting.mp4", "others.flac", "others.wav", "me.flac", "me.wav" }.Select(n => Path.Combine(meeting.Folder, n)).FirstOrDefault(File.Exists);
-        Player.Source = media == null ? null : MediaSource.CreateFromUri(new Uri(media)); Player.Visibility = media == null ? Visibility.Collapsed : Visibility.Visible;
+        var generation = ++playerGeneration;
+        var video = Path.Combine(meeting.Folder, "meeting.mp4");
+        Player.Source = File.Exists(video) ? MediaSource.CreateFromUri(new Uri(video)) : null; Player.Visibility = File.Exists(video) ? Visibility.Visible : Visibility.Collapsed;
+        if (!File.Exists(video)) _ = PrepareAudioPlayerAsync(meeting, generation);
         loading = false;
+    }
+    private async Task PrepareAudioPlayerAsync(Meeting meeting, int generation)
+    {
+        try
+        {
+            var audio = await AudioPlaybackCache.PrepareAsync(meeting.Folder);
+            if (generation != playerGeneration || selected?.Meta.Id != meeting.Meta.Id || recorder.IsRecording) return;
+            Player.Source = audio == null ? null : MediaSource.CreateFromUri(new Uri(audio)); Player.Visibility = audio == null ? Visibility.Collapsed : Visibility.Visible;
+        }
+        catch (Exception ex) { if (generation == playerGeneration) Status.Message = "Audio playback unavailable: " + ex.Message; }
     }
     private List<MeetingComment> commentList = [];
     private void LoadComments() { commentList = selected == null ? [] : CommentFiles.Read(selected.Folder); Comments.ItemsSource = commentList; }
@@ -230,7 +243,7 @@ public sealed partial class MainWindow : Window
             try { pickedVideo = VideoRecorder.ForMeeting(this, promptedCall?.ProcessId, settings.VideoQuality); }
             catch (Exception ex) { if (!await Confirm("Screen could not be recorded", ex.Message + " Start Voice instead?", "Record Voice")) return; }
         }
-        var note = promptedCall == null && selected?.Meta.IsNote == true ? selected : null;
+        var note = promptedCall == null && selected != null && Workspace.IsNote(selected.Folder, selected.Meta) ? selected : null;
         var automatic = promptedCall != null;
         var calendar = automatic && settings.TitleFromCalendar ? OutlookCalendar.Current(promptedCall?.Owner, mode == "voice", DateTimeOffset.Now).FirstOrDefault() : null;
         var title = note?.Meta.Title ?? promptedTitle ?? calendar?.Title ?? (promptedCall != null ? promptedCall.AppName + " meeting" : "Meeting");
@@ -380,7 +393,7 @@ public sealed partial class MainWindow : Window
     private async void Export_Click(object sender, RoutedEventArgs e)
     {
         if (selected == null) return; var meeting = selected; var picker = new FileSavePicker { SuggestedFileName = Workspace.CleanTitle(meeting.Meta.Title) }; picker.FileTypeChoices.Add("Markdown", new List<string> { ".md" }); WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this)); var file = await picker.PickSaveFileAsync(); if (file == null) return;
-        await RunJob(() => { var text = meeting.Meta.IsNote ? "# " + meeting.Meta.Title + "\n\n" + Read(meeting.Folder, "notes.md") : string.Join("\n\n", new[] { "summary.md", "transcript.md", "notes.md", "comments.md" }.Select(n => Read(meeting.Folder, n)).Where(t => t.Length > 0)); JsonFiles.AtomicWrite(file.Path, text); return Task.CompletedTask; }, "Exported");
+        await RunJob(() => { var text = Workspace.IsNote(meeting.Folder, meeting.Meta) ? "# " + meeting.Meta.Title + "\n\n" + Read(meeting.Folder, "notes.md") : string.Join("\n\n", new[] { "summary.md", "transcript.md", "notes.md", "comments.md" }.Select(n => Read(meeting.Folder, n)).Where(t => t.Length > 0)); JsonFiles.AtomicWrite(file.Path, text); return Task.CompletedTask; }, "Exported");
     }
     private void OpenFolder_Click(object sender, RoutedEventArgs e) { if (selected != null) Process.Start(new ProcessStartInfo(selected.Folder) { UseShellExecute = true }); }
     private GoogleOAuth GoogleAuth() => new(settings.GoogleClientID ?? "", new ProtectedTokenStore("google-client-secret").Read() ?? "", new ProtectedTokenStore("google-refresh-token"), googleHttp);

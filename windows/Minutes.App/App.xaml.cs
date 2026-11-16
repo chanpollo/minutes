@@ -5,6 +5,7 @@ namespace Minutes.App;
 public partial class App : Application
 {
     private MainWindow? window;
+    private Mutex? uiInstance;
     public App() { InitializeComponent(); }
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
@@ -15,9 +16,9 @@ public partial class App : Application
             {
                 if (arguments.Length < 2) throw new ArgumentException("A meeting folder is required");
                 var folder = Path.GetFullPath(arguments[1]); var settings = AppSettings.Load(); var meta = Workspace.ReadMeta(folder) ?? throw new IOException("Meeting metadata missing");
-                if (!meta.IsNote)
+                if (!Workspace.IsNote(folder, meta))
                 {
-                    if (arguments[0] == "--transcribe") await new TranscriptionService(settings).TranscribeAsync(folder);
+                    if (arguments[0] == "--transcribe") await new TranscriptionService(settings).TranscribeAsync(folder,followRenames:false);
                     else
                     {
                         var modelIndex = Array.IndexOf(arguments, "--model");
@@ -33,6 +34,12 @@ public partial class App : Application
             }
             return;
         }
-        window = new MainWindow(); window.Activate();
+        uiInstance = new Mutex(false, "Local\\Minutes.App");
+        try
+        {
+            if (!uiInstance.WaitOne(0)) { DesktopIntegration.OpenExisting(); Environment.Exit(0); return; }
+        }
+        catch (AbandonedMutexException) { }
+        window = new MainWindow(); window.Closed += (_, _) => { uiInstance.ReleaseMutex(); uiInstance.Dispose(); }; window.Activate();
     }
 }

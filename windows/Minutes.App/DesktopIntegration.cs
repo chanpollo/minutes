@@ -45,6 +45,11 @@ internal sealed class DesktopIntegration : IDisposable
         }
         return DefSubclassProc(window, message, w, l);
     }
+    public static void OpenExisting()
+    {
+        var window = FindWindow(null, "Minutes"); if (window == 0) return; ShowWindow(window, 9); SetForegroundWindow(window);
+    }
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern nint FindWindow(string? className, string title);
     public void SetRecording(bool recording)
     {
         SetWindowDisplayAffinity(hwnd, recording ? 0x11u : 0u); icon.Tip = recording ? "Minutes · Recording" : "Minutes"; Shell_NotifyIcon(1, ref icon);
