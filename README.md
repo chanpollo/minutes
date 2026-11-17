@@ -32,9 +32,9 @@ Minutes turns calls and room conversations into searchable transcripts, summarie
 | Platform | Requirements | Available download |
 |---|---|---|
 | **Windows** | Windows 10 build 19041+ or Windows 11 · x64 | [**Download 1.0.0 ZIP →**](https://github.com/chanpollo/minutes/releases/download/v1.0.0/Minutes-1.0.0-win-x64.zip) |
-| **macOS** | macOS 14.2+ · Apple silicon or Intel | [**Download published DMG →**](https://github.com/chanpollo/minutes/releases/tag/v0.7.0) |
+| **macOS** | macOS 14.2+ · Apple silicon or Intel | [**Download 1.0.0 DMG →**](https://github.com/chanpollo/minutes/releases/download/v1.0.0/Minutes-1.0.0.dmg) |
 
-**Mac 1.0.0:** the source version and local universal DMG are ready; the public Mac download is still **0.7.0**. iPhone and iPad apps are not available.
+Both desktop downloads are available in [Release 1.0.0](https://github.com/chanpollo/minutes/releases/tag/v1.0.0). iPhone and iPad apps are not available.
 
 **Windows release status:** 1.0.0 is available, but recording, calendar, sign-in and sync still need validation on a real Windows PC. Review the [PC testing checklist](windows/docs/TESTING.md) before relying on it for a meeting. Windows ARM and 32-bit downloads are not provided.
 
@@ -53,12 +53,25 @@ Requires Windows 10 version 2004 (build 19041) or later, or Windows 11, on x64. 
 
 ### macOS installation
 
-1. Open [Releases](https://github.com/chanpollo/minutes/releases) and choose a release with a **Minutes-<version>.dmg** asset. The published Mac download is currently 0.7.0; a Windows-only release has no DMG.
-2. Open the DMG and drag **Minutes** into **Applications**. Homebrew and Xcode are not needed for this download.
-3. Open Minutes from Applications. If macOS cannot verify the app, review the download's origin, then use **System Settings → Privacy & Security → Open Anyway**. The current distribution is not notarised.
-4. Allow **Microphone** and audio capture when asked. Allow **Screen Recording** for screen capture and **Calendars** for calendar-based meeting titles.
-5. Wait for the first-run speech-model download (about 610 MB). You can record while it downloads; transcription starts when the models are ready. A failed download can be retried with **Download Speech Models…**.
-6. For summaries, install Claude Code, Codex, Antigravity (`agy`) or Ollama. For installed tools that need sign-in, use **Settings → Summary → Sign In…**.
+**You need:** a Mac running macOS 14.2 or later. The same download works on Apple silicon and Intel. No Xcode or Homebrew is required.
+
+1. **Download** [Minutes-1.0.0.dmg](https://github.com/chanpollo/minutes/releases/download/v1.0.0/Minutes-1.0.0.dmg).
+2. **Install:** double-click the downloaded DMG, then drag **Minutes** onto **Applications** in the window. Wait for the copy to finish.
+3. **Open:** go to **Finder → Applications** and double-click **Minutes**. You can now eject the Minutes disk image.
+4. **Allow access:** approve microphone and audio capture when asked. Approve screen recording if you want video, and calendar access if you want meeting titles from your calendar.
+5. **Finish setup:** stay connected to the internet while Minutes downloads its speech models (about 610 MB). Once they are ready, make a short test recording.
+
+**If macOS blocks the first launch**
+
+The app is signed but is **not notarised by Apple**, so macOS may ask you to approve it:
+
+1. Confirm you downloaded the DMG from this repository's release page, then try opening Minutes once.
+2. Open **System Settings → Privacy & Security**.
+3. Find the message about Minutes and choose **Open Anyway**, then confirm **Open**. Your Mac may ask for authentication.
+
+If **Open Anyway** is unavailable on a managed Mac, contact your IT administrator. A warning that the app will damage your computer is different; do not bypass that warning.
+
+**Ready to record?** Recording and transcription need no AI account. For summaries, install your preferred provider separately and use **Settings → Summary → Sign In…** for supported tools that need sign-in. If models fail to download, choose **Download Speech Models…** to retry.
 
 ### Your first meeting
 
