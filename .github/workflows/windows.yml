@@ -83,3 +83,6 @@ jobs:
           name: Minutes-${{ env.MINUTES_VERSION }}-windows-installer-updates
           path: windows/artifacts/updates/*
           if-no-files-found: error
+      - name: Verify updater upgrade and relaunch
+        shell: pwsh
+        run: ./windows/scripts/Test-Updater.ps1 -Vpk "$env:RUNNER_TEMP/vpk/vpk.exe"

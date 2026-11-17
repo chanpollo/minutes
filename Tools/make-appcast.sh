@@ -2,7 +2,7 @@
 # Run after release.sh. The private update key stays in the login Keychain.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-TOOLS=${SPARKLE_TOOLS:?Set SPARKLE_TOOLS to Sparkle 2.10.1 distribution's bin directory}
+TOOLS=${SPARKLE_TOOLS:?Set SPARKLE_TOOLS to Sparkle 2.10.1 distribution bin directory}
 VERSION=$(tr -d '[:space:]' < VERSION)
 ARCHIVES=build/appcast
 mkdir -p "$ARCHIVES"
