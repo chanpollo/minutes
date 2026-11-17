@@ -1,12 +1,12 @@
 # Minutes for Windows
 
-.NET 8 / WinUI 3 port of macOS 0.7.0. Windows version: **1.0.0**. Full feature parity is not yet achieved. See [PARITY.md](docs/PARITY.md) for implemented and missing behavior, and [TESTING.md](docs/TESTING.md) before trying the unsigned app.
+.NET 8 / WinUI 3 port of macOS 0.7.0. Windows version: **1.1.0**. Full feature parity is not yet achieved. See [PARITY.md](docs/PARITY.md) for implemented and missing behavior, and [TESTING.md](docs/TESTING.md) before trying the unsigned app.
 
 ## Install the download
 
-Download [Minutes-1.0.0-win-x64.zip](https://github.com/chanpollo/minutes/releases/download/v1.0.0/Minutes-1.0.0-win-x64.zip), choose **Extract All**, and run **Minutes.App.exe** from the extracted folder. Keep all files together. No .NET SDK or Visual Studio is needed for the published ZIP. The app is unsigned and speech models download on first launch.
+Download [Minutes-win-Setup.exe](https://github.com/chanpollo/minutes/releases/download/v1.1.0/Minutes-win-Setup.exe) and run it. The installer includes the runtime; no SDK or Visual Studio is needed. For portable use, extract the entire [Minutes-win-Portable.zip](https://github.com/chanpollo/minutes/releases/download/v1.1.0/Minutes-win-Portable.zip) and keep all files together. Speech models download on first launch.
 
-See the [installation guide](../README.md#install) for requirements, first-run setup and summary providers.
+Use **Check for Updates → Update & Restart** for subsequent stable releases. Users of 1.0.0 must install 1.1.0 manually once. See the [installation guide](../README.md#install) and [update operations guide](../docs/UPDATES.md). The Windows app remains unsigned and real-device validation is still required.
 
 ## Portable tests (macOS, Linux, Windows)
 

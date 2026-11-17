@@ -31,23 +31,24 @@ Minutes turns calls and room conversations into searchable transcripts, summarie
 
 | Platform | Requirements | Available download |
 |---|---|---|
-| **Windows** | Windows 10 build 19041+ or Windows 11 · x64 | [**Download 1.0.0 ZIP →**](https://github.com/chanpollo/minutes/releases/download/v1.0.0/Minutes-1.0.0-win-x64.zip) |
-| **macOS** | macOS 14.2+ · Apple silicon or Intel | [**Download 1.0.0 DMG →**](https://github.com/chanpollo/minutes/releases/download/v1.0.0/Minutes-1.0.0.dmg) |
+| **Windows** | Windows 10 build 19041+ or Windows 11 · x64 | [**Download 1.1.0 Setup →**](https://github.com/chanpollo/minutes/releases/download/v1.1.0/Minutes-win-Setup.exe) |
+| **macOS** | macOS 14.2+ · Apple silicon or Intel | [**Download 1.1.0 DMG →**](https://github.com/chanpollo/minutes/releases/download/v1.1.0/Minutes-1.1.0.dmg) |
 
-Both desktop downloads are available in [Release 1.0.0](https://github.com/chanpollo/minutes/releases/tag/v1.0.0). iPhone and iPad apps are not available.
+Both desktop downloads are available in [Release 1.1.0](https://github.com/chanpollo/minutes/releases/tag/v1.1.0). iPhone and iPad apps are not available.
 
-**Windows release status:** 1.0.0 is available, but recording, calendar, sign-in and sync still need validation on a real Windows PC. Review the [PC testing checklist](windows/docs/TESTING.md) before relying on it for a meeting. Windows ARM and 32-bit downloads are not provided.
+**Windows release status:** 1.1.0 is available, but recording, calendar, sign-in and sync still need validation on a real Windows PC. Review the [PC testing checklist](windows/docs/TESTING.md) before relying on it for a meeting. Windows ARM and 32-bit downloads are not provided.
 
 ## Install
 
 ### Windows installation
 
-1. Download [Minutes-1.0.0-win-x64.zip](https://github.com/chanpollo/minutes/releases/download/v1.0.0/Minutes-1.0.0-win-x64.zip).
-2. Right-click the ZIP and choose **Extract All**. Keep the entire extracted folder together; do not run the app inside the ZIP or move only the executable.
-3. Open the extracted folder and run **Minutes.App.exe**. This is a portable app, so there is no setup wizard. The download includes its .NET runtime.
-4. The app is unsigned, so Windows may show a security warning. Verify that the download came from this repository. On a managed PC, follow your organisation's installation policy.
-5. Allow microphone access when prompted and wait for the speech models to download. If needed, retry with **Download Speech Models** in Settings.
-6. To generate summaries, install and sign in to your chosen summary-provider CLI. Recording and transcription work without one. Google Drive integration needs your own OAuth credentials.
+1. **Download** [Minutes-win-Setup.exe](https://github.com/chanpollo/minutes/releases/download/v1.1.0/Minutes-win-Setup.exe).
+2. **Install:** open Setup and follow the installer. A .NET SDK or Visual Studio is not required.
+3. **Open Minutes** from the installed shortcut. The app is unsigned, so Windows may show a security warning. Verify the download came from this repository; managed PCs may require IT approval.
+4. **Finish setup:** allow microphone access and wait for speech models to download. Retry with **Download Speech Models** in Settings if needed.
+5. **Try a short recording** before using it in a meeting. For summaries, install and sign in to your preferred provider separately. Google Drive integration needs your own OAuth credentials.
+
+Prefer a portable copy? Download [Minutes-win-Portable.zip](https://github.com/chanpollo/minutes/releases/download/v1.1.0/Minutes-win-Portable.zip), extract the entire folder and keep its files together. Run the app from the extracted package. The old raw `win-x64.zip` remains available but is not the recommended update-enabled package.
 
 Requires Windows 10 version 2004 (build 19041) or later, or Windows 11, on x64. Capturing a specific app's audio requires build 20348 or later; earlier supported builds fall back to whole-system audio. Windows ARM and 32-bit builds are not provided.
 
@@ -55,7 +56,7 @@ Requires Windows 10 version 2004 (build 19041) or later, or Windows 11, on x64. 
 
 **You need:** a Mac running macOS 14.2 or later. The same download works on Apple silicon and Intel. No Xcode or Homebrew is required.
 
-1. **Download** [Minutes-1.0.0.dmg](https://github.com/chanpollo/minutes/releases/download/v1.0.0/Minutes-1.0.0.dmg).
+1. **Download** [Minutes-1.1.0.dmg](https://github.com/chanpollo/minutes/releases/download/v1.1.0/Minutes-1.1.0.dmg).
 2. **Install:** double-click the downloaded DMG, then drag **Minutes** onto **Applications** in the window. Wait for the copy to finish.
 3. **Open:** go to **Finder → Applications** and double-click **Minutes**. You can now eject the Minutes disk image.
 4. **Allow access:** approve microphone and audio capture when asked. Approve screen recording if you want video, and calendar access if you want meeting titles from your calendar.
@@ -79,6 +80,12 @@ If **Open Anyway** is unavailable on a managed Mac, contact your IT administrato
 2. Stop recording and wait for the transcript.
 3. Review the transcript, then choose **Summarise** with your preferred provider.
 4. Check the decisions and action items, add your own notes, and replay any passage you want to verify.
+
+## Update without reinstalling
+
+After installing **1.1.0** once, choose **Minutes → Check for Updates…** on Mac (also in the menu bar), or **Check for Updates** in the Windows toolbar. If a newer stable version is available, confirm installation to download, install and restart the app. On Windows the button reads **Update & Restart**.
+
+Finish recording and processing first. Your meeting workspace and speech models stay in place. Updates are user-initiated; nothing installs silently at startup. Users upgrading from 1.0.0 must download this release manually once. See the [update guide](docs/UPDATES.md) for details.
 
 ## Choose how summaries are made
 

@@ -80,7 +80,7 @@ For recording, playback, calendar, sign-in or sync changes, use the [real-PC che
 4. Fill in the PR template: problem, resulting behavior, issue link, validation and remaining limitations.
 5. Respond to review comments and rerun affected checks after changes. Keep the PR focused; discuss additional work in a separate issue.
 
-The current Windows workflow runs on `feature/windows-app` pushes and manual dispatch; opening an external PR does not automatically run that workflow. A maintainer reviews the code and arranges any additional CI or device checks. Do not use release/publish dispatches to test a contribution.
+The Windows workflow runs on pushes to `main` and `feature/windows-app`, pull requests to `main`, and manual dispatch. It builds and packages artifacts without publishing a release. A maintainer arranges any additional device checks.
 
 A maintainer reviews and merges accepted changes. If you disagree with feedback, explain the use case and tradeoff in the PR so it can be resolved there. After the PR is merged, delete your contribution branch. Maintainers handle version bumps, signing, tags and published downloads separately; a merge does not mean a release is available.
 
