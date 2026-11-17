@@ -31,7 +31,7 @@ The Windows workflow tests, builds, bundles speech tools and packages:
 
 - `Minutes-win-Setup.exe`: initial installation.
 - `Minutes-win-Portable.zip`: portable installation with updater support.
-- `Minutes-<version>-full.nupkg` and `releases.win.json`: update package and feed (use the exact generated names).
+- `MinutesDesktop-<version>-full.nupkg` and `releases.win.json`: update package and feed (use the exact generated names).
 
 Upload all Velopack output files to the same stable release as the Mac DMG/appcast. The installed package ID is `MinutesDesktop`, keeping its install directory separate from `%LOCALAPPDATA%\Minutes`, where existing settings and models live. Do not change that ID after release. The setup/portable filenames are renamed for users; the feed retains its generated package filename.
 

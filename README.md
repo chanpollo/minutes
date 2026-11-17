@@ -43,7 +43,7 @@ Both desktop downloads are available in [Release 1.1.0](https://github.com/chanp
 ### Windows installation
 
 1. **Download** [Minutes-win-Setup.exe](https://github.com/chanpollo/minutes/releases/download/v1.1.0/Minutes-win-Setup.exe).
-2. **Install:** open Setup and follow the installer. A .NET SDK or Visual Studio is not required.
+2. **Install:** quit any running copy of Minutes, then open Setup and follow the installer. A .NET SDK or Visual Studio is not required.
 3. **Open Minutes** from the installed shortcut. The app is unsigned, so Windows may show a security warning. Verify the download came from this repository; managed PCs may require IT approval.
 4. **Finish setup:** allow microphone access and wait for speech models to download. Retry with **Download Speech Models** in Settings if needed.
 5. **Try a short recording** before using it in a meeting. For summaries, install and sign in to your preferred provider separately. Google Drive integration needs your own OAuth credentials.
@@ -57,7 +57,7 @@ Requires Windows 10 version 2004 (build 19041) or later, or Windows 11, on x64. 
 **You need:** a Mac running macOS 14.2 or later. The same download works on Apple silicon and Intel. No Xcode or Homebrew is required.
 
 1. **Download** [Minutes-1.1.0.dmg](https://github.com/chanpollo/minutes/releases/download/v1.1.0/Minutes-1.1.0.dmg).
-2. **Install:** double-click the downloaded DMG, then drag **Minutes** onto **Applications** in the window. Wait for the copy to finish.
+2. **Install:** quit any running copy of Minutes, double-click the downloaded DMG, then drag **Minutes** onto **Applications** in the window. Wait for the copy to finish.
 3. **Open:** go to **Finder → Applications** and double-click **Minutes**. You can now eject the Minutes disk image.
 4. **Allow access:** approve microphone and audio capture when asked. Approve screen recording if you want video, and calendar access if you want meeting titles from your calendar.
 5. **Finish setup:** stay connected to the internet while Minutes downloads its speech models (about 610 MB). Once they are ready, make a short test recording.

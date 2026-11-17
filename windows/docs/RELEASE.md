@@ -8,7 +8,7 @@
 | Windows 10/11 x64 | [Minutes-win-Setup.exe](https://github.com/chanpollo/minutes/releases/download/v1.1.0/Minutes-win-Setup.exe) | Run Setup, then open Minutes from its shortcut. |
 | Windows portable | [Minutes-win-Portable.zip](https://github.com/chanpollo/minutes/releases/download/v1.1.0/Minutes-win-Portable.zip) | Extract the whole archive and keep its files together. |
 
-Users on 1.0.0 must install this release manually once. Recording/transcription need no AI account; speech models download on first launch. Summary providers are installed separately. Meeting workspaces and models remain outside the app installation.
+Users on 1.0.0 must quit the old app and install this release manually once. Recording/transcription need no AI account; speech models download on first launch. Summary providers are installed separately. Meeting workspaces and models remain outside the app installation.
 
 ## What's new
 
@@ -26,12 +26,12 @@ Windows: the installer and executable are **unsigned**, so Windows may display a
 
 ## Validation and limits
 
-- Mac unit tests: 13 passed, 0 failed (same counts as baseline).
+- Mac unit tests: 14 passed, 0 failed (baseline: 13 passed). Includes a regression check that installation defers during active work and resumes when idle.
 - Windows portable core tests: 147 passed, 0 failed (same counts as baseline); WinUI build and Velopack packaging passed on Windows CI.
 - Mac isolated integration: an older app copy was updated to build 21; the installed app signature verified. A valid EdDSA archive was accepted, a tampered archive rejected, and the updated copy reported no newer version.
 - Windows independent updater fixture: baseline package → downloaded upgrade → restarted into 1.1.0 → no repeat update, passed on Windows runner. This exercises Velopack's update engine, separately from the full Minutes UI.
-- Real-device checks of the full Windows app's recording, calendar, sign-in, sync, updater UI and busy-state interactions remain outstanding. Mac's normal update UI/relaunch and busy-state interactions have not been manually exercised; the isolated test used an automated test driver.
+- Real-device checks of the full Windows app's recording, calendar, sign-in, sync, updater UI and busy-state interactions remain outstanding. Mac's normal update UI/relaunch and busy-state interactions have not been manually exercised; the busy-state delegate is covered by an automated regression test and the isolated test used an automated test driver.
 
-Mac package source: f79af12 (build 21). Windows package source: f79af12, [build run](https://github.com/chanpollo/minutes/actions/runs/44006274005). Additional updater smoke tests: [run](https://github.com/chanpollo/minutes/actions/runs/44006834969). Later commits add tests and documentation; runtime application code is unchanged.
+Mac package source: f79af12 (build 21). Windows package source: f9abb9b, [build and updater validation](https://github.com/chanpollo/minutes/actions/runs/44007959645). Additional updater smoke tests: [run](https://github.com/chanpollo/minutes/actions/runs/44006834969). Windows uses the MinutesDesktop package ID so installation is separate from existing settings/models in LocalAppData/Minutes. The Mac runtime source is unchanged by the later Windows fixes.
 
 [Installation guide](https://github.com/chanpollo/minutes#install) · [Update operations](https://github.com/chanpollo/minutes/blob/main/docs/UPDATES.md) · [Windows feature gaps](https://github.com/chanpollo/minutes/blob/main/windows/docs/PARITY.md)
