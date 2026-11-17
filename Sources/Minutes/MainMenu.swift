@@ -9,6 +9,8 @@ enum MainMenu {
         let app = submenu(of: main, "Minutes")
         app.addItem(withTitle: "About Minutes", action: #selector(VersionsWindowController.showVersions), keyEquivalent: "")
             .target = VersionsWindowController.shared
+        app.addItem(withTitle: "Check for Updates…", action: #selector(AppUpdater.checkForUpdates(_:)), keyEquivalent: "")
+            .target = AppUpdater.shared
         app.addItem(.separator())
         app.addItem(withTitle: "Settings…", action: #selector(SettingsWindowController.showSettings), keyEquivalent: ",")
             .target = SettingsWindowController.shared

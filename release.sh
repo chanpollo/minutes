@@ -102,6 +102,8 @@ xcrun actool Resources/AppIcon.icon --compile "$APP/Contents/Resources" --platfo
   -c "Set :CFBundleShortVersionString $VERSION" -c "Set :CFBundleVersion $BUILD_NUMBER" \
   -c "Add :MinutesBuildDate string $BUILD_DATE" -c "Add :MinutesCommit string $COMMIT" "$APP/Contents/Info.plist"
 cp docs/CHANGELOG.md "$APP/Contents/Resources/"
+cp LICENSE "$APP/Contents/Resources/Licenses/Minutes-LICENSE"
+cp .build/checkouts/Sparkle/LICENSE "$APP/Contents/Resources/Licenses/Sparkle-LICENSE"
 lipo -create "${whisper_slices[@]}" -output "$APP/Contents/Resources/bin/whisper-cli"
 cp "$CACHE/$SHERPA/bin/sherpa-onnx-offline-speaker-diarization" "$APP/Contents/Resources/sherpa-onnx/bin/"
 cp "$CACHE/$SHERPA/lib/libonnxruntime.dylib" "$APP/Contents/Resources/sherpa-onnx/lib/"
@@ -156,6 +158,7 @@ for f in "${machos[@]}"; do
     sign "$f"
   fi
 done
+bash Tools/embed-sparkle.sh "$APP" "$IDENTITY" "$TIMESTAMP"
 sign --entitlements Resources/Minutes.entitlements "$APP"
 codesign --verify --deep --strict "$APP"
 # A signing mistake shows up only when the helpers start, e.g. a dylib refused by library validation.

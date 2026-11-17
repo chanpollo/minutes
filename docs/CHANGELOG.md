@@ -2,6 +2,11 @@
 
 Newest first. One heading per build: `## <version> (<build>) — <date>`. build.sh copies this file into the app; About Minutes reads it.
 
+## 1.1.0 (21) — 2026-11-17
+- Check for Updates on macOS downloads and installs signed updates through Sparkle, then restarts Minutes. Installation waits for recording, transcription, summaries and audio briefings to finish.
+- Windows adds Check for Updates and Update & Restart through Velopack, plus a Setup installer. Update actions wait until recording and processing are idle.
+- Install this release manually once when upgrading from 1.0.0. Future releases can be installed from within the app. Meeting workspaces and speech models remain outside the app installation.
+
 ## 1.0.0 (20) — 2026-11-16
 - Align the macOS version with Windows 1.0.0. This version change does not add iOS support or imply Windows feature parity.
 - Add a platform overview, download links and step-by-step installation instructions for Windows and macOS to the README.

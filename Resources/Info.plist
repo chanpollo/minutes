@@ -2,6 +2,17 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>SUFeedURL</key>
+    <string>https://github.com/chanpollo/minutes/releases/latest/download/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>mssVh+5af0uOneW7sjfPA/Zxa7LnXXkMjYa5Q/g5LlY=</string>
+    <key>SUEnableAutomaticChecks</key>
+    <false/>
+    <key>SUAutomaticallyUpdate</key>
+    <false/>
+    <key>SUVerifyUpdateBeforeExtraction</key>
+    <true/>
+
 	<key>CFBundleIdentifier</key>
 	<string>com.enta1234.minutes</string>
 	<key>CFBundleName</key>

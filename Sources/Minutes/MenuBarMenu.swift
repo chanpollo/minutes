@@ -92,6 +92,9 @@ final class MenuBarMenu: NSObject, NSMenuDelegate {
         menu.addItem(item("Open Meetings Folder", #selector(openFolder)))
         menu.addItem(.separator())
         menu.addItem(item("About Minutes", #selector(openAbout)))
+        let update = NSMenuItem(title: "Check for Updates…", action: #selector(AppUpdater.checkForUpdates(_:)), keyEquivalent: "")
+        update.target = AppUpdater.shared
+        menu.addItem(update)
         menu.addItem(item("Settings…", #selector(openSettings), key: ","))
         menu.addItem(NSMenuItem(title: "Quit Minutes", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
     }

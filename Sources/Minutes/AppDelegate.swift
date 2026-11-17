@@ -28,6 +28,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let summaryQueue = DispatchQueue(label: "minutes.summary", qos: .utility)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        AppUpdater.shared.isBusy = { [weak self] in
+            guard let self else { return true }
+            return self.recording != nil || self.transcribing > 0 || self.summarising > 0
+                || !BriefingCenter.shared.jobs.isEmpty || !BriefingCenter.shared.saving.isEmpty
+        }
+        AppUpdater.shared.start()
         Settings.migrateRecordScreen()
         // Re-run with… lists Gemini models from this cache.
         AgyEngine.refreshModels {}

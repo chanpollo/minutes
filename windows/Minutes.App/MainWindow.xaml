@@ -8,6 +8,7 @@
       <AppBarToggleButton x:Name="MuteButton" Label="Mute Microphone" Icon="Mute" Click="Mute_Click" IsEnabled="False"/>
       <AppBarButton Label="New Note" Icon="Add" Click="NewNote_Click"/>
       <AppBarButton Label="Summarise" Icon="Edit" Click="Summarise_Click"/>
+      <AppBarButton x:Name="UpdateButton" Label="Check for Updates" Icon="Download" Click="Update_Click"/>
       <AppBarButton Label="Settings" Icon="Setting" Click="Settings_Click"/>
     </CommandBar>
     <InfoBar x:Name="Status" Grid.Row="1" Grid.ColumnSpan="3" IsOpen="True" IsClosable="False" Message="" Severity="Informational"/>

@@ -476,9 +476,55 @@ public sealed partial class MainWindow : Window
         catch (Exception e) { Status.Message = "Meeting detection: " + e.Message; }
         finally { polling = false; }
     }
+    private bool updating;
+    private async void Update_Click(object sender, RoutedEventArgs e)
+    {
+        if (updating) return;
+        if (recorder.IsRecording || liveJobs.Count > 0 || polling || callDialog != null || recordingTitleDialog != null
+            || jobs.CurrentCount == 0 || captureActions.CurrentCount == 0)
+        {
+            Status.Message = "Finish recording and processing before updating.";
+            return;
+        }
+        updating = true;
+        micPoll.Stop(); maintenance.Stop(); syncDebounce.Stop();
+        UpdateButton.IsEnabled = false;
+        var jobLock = false; var captureLock = false;
+        try
+        {
+            jobLock = await jobs.WaitAsync(0);
+            captureLock = await captureActions.WaitAsync(0);
+            if (!jobLock || !captureLock) throw new InvalidOperationException("Another task started. Try again when it finishes.");
+            var updater = new Velopack.UpdateManager(new Velopack.Sources.GithubSource("https://github.com/chanpollo/minutes", null, false));
+            if (!updater.IsInstalled) throw new InvalidOperationException("Install the new Minutes Setup release once to enable in-app updates.");
+            Status.Message = "Checking for updates…";
+            var update = await updater.CheckForUpdatesAsync();
+            if (update == null) { Status.Message = "Minutes is up to date."; return; }
+            if (!await Confirm("Update Minutes?", $"Version {update.TargetFullRelease.Version} is available. Minutes will download the update, close and reopen. Your meeting files stay in your workspace.", "Update & Restart")) return;
+            ((FrameworkElement)Content).IsHitTestVisible = false;
+            await updater.DownloadUpdatesAsync(update, percent => DispatcherQueue.TryEnqueue(() => Status.Message = $"Downloading update · {percent}%"));
+            if (selected != null)
+            {
+                JsonFiles.AtomicWrite(Path.Combine(selected.Folder, "notes.md"), Notes.Text);
+                if (MeetingTitle.Text != selected.Meta.Title) workspace.Rename(selected, MeetingTitle.Text);
+            }
+            Status.Message = "Installing update…";
+            updater.ApplyUpdatesAndRestart(update.TargetFullRelease);
+        }
+        catch (Exception error) { Status.Message = "Update unavailable: " + error.Message; Status.Severity = InfoBarSeverity.Error; }
+        finally
+        {
+            ((FrameworkElement)Content).IsHitTestVisible = true;
+            if (captureLock) captureActions.Release();
+            if (jobLock) jobs.Release();
+            updating = false; UpdateButton.IsEnabled = true;
+            micPoll.Start(); maintenance.Start(); if (pendingSync.Count > 0) syncDebounce.Start();
+        }
+    }
+
     private async void Settings_Click(object sender, RoutedEventArgs e)
     {
-        if (recorder.IsRecording) return;
+        if (recorder.IsRecording || updating) return;
         var panel = new StackPanel { Spacing = 12, Width = 480 };
         TextBox Text(string header, string value) { var box = new TextBox { Header = header, Text = value }; panel.Children.Add(box); return box; }
         ComboBox Choice(string header, string[] values, string value) { var box = new ComboBox { Header = header, ItemsSource = values, SelectedItem = value, HorizontalAlignment = HorizontalAlignment.Stretch }; panel.Children.Add(box); return box; }

@@ -32,6 +32,7 @@ xcrun actool Resources/AppIcon.icon --compile "$APP/Contents/Resources" --platfo
 
 # A stable identity keeps microphone and audio-capture permissions across rebuilds.
 IDENTITY=${CODESIGN_IDENTITY:-$(security find-identity -v -p codesigning | awk -F'"' '/Apple Development/ {print $2; exit}')}
+bash Tools/embed-sparkle.sh "$APP" "${IDENTITY:--}"
 codesign --force --sign "${IDENTITY:--}" "$APP"
 echo "$BUILD" > BUILD_NUMBER
 
