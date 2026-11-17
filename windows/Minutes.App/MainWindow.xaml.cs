@@ -500,7 +500,7 @@ public sealed partial class MainWindow : Window
             Status.Message = "Checking for updates…";
             var update = await updater.CheckForUpdatesAsync();
             if (update == null) { Status.Message = "Minutes is up to date."; return; }
-            if (!await Confirm("Update Minutes?", $"Version {update.TargetFullRelease.Version} is available. Minutes will download the update, close and reopen. Your meeting files stay in your workspace.", "Update & Restart")) return;
+            if (!await Confirm("Update Minutes?", $"Version {update.TargetFullRelease.Version} is available. Minutes will download the update, close and reopen. Your meeting files stay in your workspace.", "Update & Restart")) { Status.Message = "Update cancelled."; return; }
             ((FrameworkElement)Content).IsHitTestVisible = false;
             await updater.DownloadUpdatesAsync(update, percent => DispatcherQueue.TryEnqueue(() => Status.Message = $"Downloading update · {percent}%"));
             if (selected != null)

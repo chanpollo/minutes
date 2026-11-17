@@ -33,6 +33,8 @@ The Windows workflow tests, builds, bundles speech tools and packages:
 - `Minutes-win-Portable.zip`: portable installation with updater support.
 - `Minutes-<version>-full.nupkg` and `releases.win.json`: update package and feed (use the exact generated names).
 
-Upload all Velopack output files to the same stable release as the Mac DMG/appcast. The old `Minutes-<version>-win-x64.zip` is a raw publish archive for compatibility, not the recommended install path. Packages are currently unsigned at the Windows code-signing level; Velopack checks package hashes, but this is not publisher certificate verification.
+Upload all Velopack output files to the same stable release as the Mac DMG/appcast. The installed package ID is `MinutesDesktop`, keeping its install directory separate from `%LOCALAPPDATA%\Minutes`, where existing settings and models live. Do not change that ID after release. The setup/portable filenames are renamed for users; the feed retains its generated package filename.
+
+The old `Minutes-<version>-win-x64.zip` is a raw publish archive for compatibility, not the recommended install path. Packages are currently unsigned at the Windows code-signing level; Velopack checks package hashes, but this is not publisher certificate verification.
 
 Use a draft release until both platform files are present, then publish. Do not replace already published versioned packages; release a new version for a fix. Record CI results separately from testing on a real Windows PC. Test upgrade, restart, busy-state blocking, cancellation, network failure and preservation of workspace/model files on each supported platform.

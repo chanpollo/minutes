@@ -7,3 +7,5 @@ whisper.cpp is compiled for a baseline x64 CPU, without native/AVX/AVX2/FMA/F16C
 Upstreams: https://github.com/ggml-org/whisper.cpp, https://github.com/k2-fsa/sherpa-onnx, https://github.com/microsoft/onnxruntime, https://github.com/naudio/NAudio.
 
 The ZIP also includes the official FLAC 1.5.0 command-line encoder (GPL; separate process), libFLAC (Xiph BSD-style license), its license texts and the corresponding upstream source archive under licenses/flac/. It compresses only after decoding and comparing every PCM sample against the original WAV.
+
+In-app updates use Velopack 1.2.161 (MIT). Its license is included under `licenses/Velopack-LICENSE`.
